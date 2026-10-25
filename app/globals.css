@@ -719,3 +719,317 @@ a {
     font-size: 0.95rem;
   }
 }
+
+/* ---- fullscreen game stage (Phaser) ---- */
+.fs-stage {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 79px);
+  height: calc(100dvh - 79px);
+  overflow: hidden;
+  background: #79b5d9;
+}
+@media (max-width: 680px) {
+  .fs-stage {
+    height: calc(100vh - 109px);
+    height: calc(100dvh - 109px);
+  }
+}
+.fs-host {
+  position: absolute;
+  inset: 0;
+}
+.fs-host canvas {
+  display: block;
+  touch-action: none;
+}
+.fs-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(8px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right))
+    8px calc(12px + env(safe-area-inset-left));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.78));
+  border-bottom: 2px solid rgba(77, 184, 232, 0.5);
+  pointer-events: none;
+}
+.fs-topbar > * {
+  pointer-events: auto;
+}
+.fs-back {
+  font-weight: 800;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.fs-title {
+  font-weight: 800;
+  font-size: 1.05rem;
+  margin-right: auto;
+  white-space: nowrap;
+}
+.fs-stats {
+  display: flex;
+  gap: 4px 14px;
+  flex-wrap: wrap;
+  font-weight: 800;
+  margin-right: auto;
+  align-items: center;
+  font-size: 0.98rem;
+}
+.fs-stats-sub {
+  color: #5b7a94;
+  font-size: 0.85rem;
+}
+.fs-hud {
+  position: absolute;
+  top: calc(56px + env(safe-area-inset-top));
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  pointer-events: none;
+  padding: 4px calc(12px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom))
+    calc(12px + env(safe-area-inset-left));
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.fs-xpbar {
+  position: relative;
+  height: 16px;
+  background: rgba(20, 40, 60, 0.55);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.fs-xpfill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: #4db8e8;
+}
+.fs-xplabel {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+.fs-hudrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.fs-hudrow.sub {
+  justify-content: space-between;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-shadow: 0 1px 4px rgba(20, 40, 60, 0.7);
+}
+.fs-hpbar {
+  position: relative;
+  width: min(250px, 44vw);
+  height: 18px;
+  background: rgba(20, 40, 60, 0.55);
+  border-radius: 9px;
+  overflow: hidden;
+  flex: none;
+}
+.fs-hpfill {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  background: #3fbf5a;
+  border-radius: 7px;
+  max-width: calc(100% - 4px);
+}
+.fs-hpfill.low {
+  background: #ff5252;
+}
+.fs-hptext {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.fs-time {
+  margin: 0 auto;
+  font-size: 1.65rem;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 2px 6px rgba(20, 40, 60, 0.65);
+}
+.fs-kills {
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(20, 40, 60, 0.7);
+  white-space: nowrap;
+}
+.fs-score {
+  font-weight: 800;
+  color: #fff;
+  font-size: 1rem;
+  text-shadow: 0 1px 4px rgba(20, 40, 60, 0.7);
+}
+.fs-stage-label {
+  margin-left: auto;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(20, 40, 60, 0.7);
+}
+.fs-bossbar {
+  position: relative;
+  height: 15px;
+  background: rgba(20, 40, 60, 0.6);
+  border-radius: 8px;
+  width: min(430px, 82vw);
+  margin: 0 auto 2px;
+}
+.fs-hud.sky .fs-bossbar {
+  margin: 2px auto;
+}
+.fs-bossfill {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  bottom: 2px;
+  background: #b388ff;
+  border-radius: 6px;
+  max-width: calc(100% - 4px);
+}
+.fs-bosslabel {
+  position: absolute;
+  left: 50%;
+  top: -19px;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  text-shadow: 0 1px 4px rgba(20, 40, 60, 0.8);
+  white-space: nowrap;
+}
+.fs-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: auto;
+}
+.fs-bossbar + .fs-chips {
+  margin-top: 0;
+}
+.fs-bossbar:has(+ .fs-chips) {
+  margin-top: auto;
+}
+.fs-chip {
+  background: rgba(20, 40, 60, 0.55);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+.fs-chainbar {
+  position: relative;
+  background: rgba(20, 40, 60, 0.65);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 5px 8px;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: auto;
+}
+.fs-chainfill {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: #fff39b;
+}
+.fs-bottombar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  background: linear-gradient(0deg, rgba(255, 255, 255, 0.97), rgba(255, 255, 255, 0.9));
+  border-top: 2px solid rgba(77, 184, 232, 0.5);
+  padding: 8px calc(10px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom))
+    calc(10px + env(safe-area-inset-left));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 52%;
+  overflow-y: auto;
+}
+.fs-nextwave {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  font-size: 0.88rem;
+  background: var(--sky-light);
+  border-radius: 10px;
+  padding: 6px 10px;
+}
+.td-panel.fs-cards {
+  display: flex;
+  grid-template-columns: none;
+  gap: 8px;
+  overflow-x: auto;
+  margin: 0;
+  padding-bottom: 2px;
+}
+.td-panel.fs-cards .td-card {
+  min-width: 148px;
+  flex: 1 0 148px;
+}
+.fs-wavebtn {
+  text-align: center;
+}
+.td-selected.fs-sel {
+  margin: 0;
+}
+.fs-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: rgba(255, 255, 255, 0.88);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 16px;
+  line-height: 1.7;
+  overflow-y: auto;
+}
+.fs-overlay.bottom {
+  background: transparent;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.fs-overlay.bottom .build-card {
+  pointer-events: auto;
+}
+.fs-overlay .play-count {
+  margin-top: 14px;
+}
+.fs-host canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
