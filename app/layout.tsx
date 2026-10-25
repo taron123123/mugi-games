@@ -5,12 +5,12 @@ import { SITE_URL } from "@/lib/games";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "むぎゲームズ | むぎのへんてこミニゲーム集",
+  title: "むぎゲームズ | むぎの本格ブラウザゲーム集",
   description:
-    "水色ふわふわAIマスコット「むぎ」がご案内する、ちょっと変わったミニゲーム集。ストップウォッチ・反射神経・むぎキャッチの3本立て！",
+    "水色ふわふわAIマスコット「むぎ」がご案内するブラウザゲーム集。サバイバルアクション「むぎサバイバーズ」、タワーディフェンス「麦畑防衛戦」、弾幕STG「むぎスカイ」の3本立て！",
   openGraph: {
     title: "むぎゲームズ",
-    description: "むぎのへんてこミニゲーム集🌾 ブラウザでそのまま遊べます。",
+    description: "むぎの本格ブラウザゲーム集🌾 サバイバーズ／タワーディフェンス／弾幕STGが遊び放題。",
     url: SITE_URL,
     siteName: "むぎゲームズ",
     images: [{ url: "/mugi.webp" }],
@@ -36,9 +36,9 @@ export default function RootLayout({
             </span>
           </Link>
           <nav className="site-nav">
-            <Link href="/games/stopwatch">⏱️ ストップウォッチ</Link>
-            <Link href="/games/reaction">⚡ 反射神経</Link>
-            <Link href="/games/mugi-catch">🌾 むぎキャッチ</Link>
+            <Link href="/games/survivors">⚔️ サバイバーズ</Link>
+            <Link href="/games/tower-defense">🏯 麦畑防衛戦</Link>
+            <Link href="/games/sky-shooter">✈️ むぎスカイ</Link>
           </nav>
         </header>
         {children}

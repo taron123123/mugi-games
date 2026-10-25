@@ -415,126 +415,26 @@ a {
   font-size: 1.15rem;
 }
 
-/* ---- stopwatch ---- */
-.mode-tabs {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-  margin-bottom: 8px;
-}
-
-.tab {
-  font-family: inherit;
-  font-weight: 700;
-  font-size: 0.95rem;
-  padding: 8px 18px;
-  border-radius: 999px;
-  border: 2px solid var(--sky);
-  background: #fff;
-  color: var(--sky-dark);
-  cursor: pointer;
-}
-
-.tab.active {
-  background: var(--sky);
-  color: #fff;
-}
-
-.sw-target {
-  text-align: center;
-  font-size: 1.1rem;
-  margin: 10px 0 0;
-}
-
-.sw-daily-note {
-  display: block;
-  font-size: 0.85rem;
-  color: #5b7a94;
-}
-
-.sw-display {
-  text-align: center;
-  font-size: 4rem;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-  margin: 8px 0 0;
-  color: var(--ink);
-}
-
-.sw-unit {
-  font-size: 1.4rem;
-  margin-left: 6px;
-  color: #5b7a94;
-}
-
-.sw-hidden-note {
-  text-align: center;
-  color: var(--danger);
-  font-weight: 700;
-  margin: 0 0 6px;
-}
-
-/* ---- reaction ---- */
-.round-info {
-  text-align: center;
-  font-weight: 700;
-  margin: 0 0 12px;
-}
-
-.tap-area {
-  height: 260px;
-  border-radius: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.8rem;
-  font-weight: 800;
-  color: #fff;
-  background: #8aa5b8;
-  cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
-  touch-action: manipulation;
-}
-
-.tap-area.waiting {
-  background: var(--danger);
-}
-
-.tap-area.ready {
-  background: var(--green);
-}
-
-.foul-text {
-  font-size: 1.4rem;
-  font-weight: 800;
-  color: var(--danger);
-}
-
-.round-result {
-  font-size: 2rem;
-  font-weight: 800;
-  color: var(--sky-dark);
-}
-
-/* ---- mugi catch ---- */
-.catch-hud {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 20px;
-  justify-content: center;
-  font-size: 1.05rem;
-  margin-bottom: 12px;
-}
-
+/* ---- canvas games (shared) ---- */
 .canvas-wrap {
   position: relative;
   max-width: 720px;
   margin: 0 auto;
 }
 
-.catch-canvas {
+.canvas-wrap.wide {
+  max-width: 960px;
+}
+
+.canvas-wrap.td {
+  max-width: 672px;
+}
+
+.canvas-wrap.sky {
+  max-width: 480px;
+}
+
+.game-canvas {
   width: 100%;
   height: auto;
   display: block;
@@ -542,6 +442,236 @@ a {
   border: 3px solid var(--sky);
   background: #bfeaff;
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.game-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.toolbar-label {
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+
+.toolbar-btns {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.icon-btn {
+  font-family: inherit;
+  font-size: 1.05rem;
+  line-height: 1;
+  background: #fff;
+  border: 2px solid var(--sky);
+  border-radius: 999px;
+  padding: 7px 12px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.chip-btn {
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  background: #fff;
+  border: 2px solid #b9d9ea;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 7px 12px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.chip-btn.on {
+  background: var(--sky-light);
+  border-color: var(--sky);
+  color: var(--sky-dark);
+}
+
+.chip-btn.bomb {
+  border-color: #b388ff;
+  color: #6a3ec9;
+  background: #f3edff;
+}
+
+/* ---- survivors: upgrade cards ---- */
+.upgrade-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.upgrade-card {
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 190px;
+  background: #fff;
+  border: 3px solid var(--wheat);
+  border-radius: 16px;
+  padding: 16px 12px;
+  cursor: pointer;
+  color: var(--ink);
+  transition: transform 0.1s ease, border-color 0.1s ease;
+  touch-action: manipulation;
+}
+
+.upgrade-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--sky);
+}
+
+.upgrade-icon {
+  font-size: 2rem;
+}
+
+.upgrade-name {
+  font-weight: 800;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.upgrade-desc {
+  font-size: 0.82rem;
+  color: #5b7a94;
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* ---- tower defense ---- */
+.td-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.td-card {
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: #fff;
+  border: 2.5px solid #cfe9f7;
+  border-radius: 14px;
+  padding: 10px 12px;
+  cursor: pointer;
+  color: var(--ink);
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.td-card.selected {
+  border-color: var(--sky);
+  background: var(--sky-light);
+}
+
+.td-card.cant {
+  opacity: 0.55;
+}
+
+.td-card-icon {
+  font-size: 1.5rem;
+}
+
+.td-card-name {
+  font-weight: 800;
+  font-size: 0.92rem;
+}
+
+.td-card-desc {
+  font-size: 0.75rem;
+  color: #5b7a94;
+  line-height: 1.45;
+}
+
+.td-card-cost {
+  font-weight: 800;
+  font-size: 0.88rem;
+  margin-top: 2px;
+}
+
+.td-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.td-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  justify-content: center;
+  background: var(--sky-light);
+  border-radius: 14px;
+  padding: 10px 14px;
+  width: 100%;
+}
+
+.td-selected-name {
+  font-weight: 800;
+}
+
+.td-selected-stats {
+  font-size: 0.88rem;
+  color: #44617c;
+}
+
+.td-max {
+  font-weight: 700;
+  color: #b8860b;
+}
+
+.sub-btn.danger {
+  border-color: #e8a49f;
+  color: #b23730;
+}
+
+.sub-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* build-phase overlay: 下部カードだけ操作を塞ぐ */
+.canvas-overlay.build {
+  background: transparent;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.build-card {
+  pointer-events: auto;
+  background: rgba(255, 255, 255, 0.94);
+  border-radius: 16px;
+  padding: 14px 18px;
+  max-width: 520px;
+  box-shadow: 0 8px 24px rgba(35, 64, 90, 0.2);
+}
+
+.build-card p {
+  margin: 6px 0 10px;
+  font-size: 0.92rem;
+}
+
+.overlay-note {
+  font-size: 0.82rem;
+  color: #5b7a94;
 }
 
 .canvas-overlay {
@@ -576,17 +706,16 @@ a {
 }
 
 @media (max-width: 560px) {
-  .sw-display {
-    font-size: 3rem;
-  }
   .hero h1 {
     font-size: 1.55rem;
   }
   .game-title {
     font-size: 1.3rem;
   }
-  .tap-area {
-    height: 220px;
-    font-size: 1.4rem;
+  .upgrade-card {
+    width: 100%;
+  }
+  .toolbar-label {
+    font-size: 0.95rem;
   }
 }
