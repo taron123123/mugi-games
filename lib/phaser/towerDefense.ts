@@ -1117,7 +1117,7 @@ class TowerDefenseScene extends Phaser.Scene {
     });
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       const cellPos = this.toCell(p.x, p.y);
-      if (!cellPos || this.phase === "over") return;
+      if (!cellPos || this.phase === "over" || this.phase === "paused") return;
       this.handleTap(cellPos.c, cellPos.r);
     });
   }

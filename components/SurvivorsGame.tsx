@@ -17,6 +17,7 @@ import PlayCountBadge from "./PlayCountBadge";
 import RecordsPanel from "./RecordsPanel";
 import ShareButton, { FollowLink } from "./ShareButton";
 import MuteButton from "./MuteButton";
+import FullscreenButton from "./FullscreenButton";
 
 const SLUG = "survivors";
 const HIST_KEY = "mugi-games:survivors:history";
@@ -29,7 +30,9 @@ function fmtTime(sec: number): string {
 
 export default function SurvivorsGame() {
   const hostRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<SurvivorsApi | null>(null);
+  const [bootState, setBootState] = useState<"loading" | "ready" | "error">("loading");
   const [phase, setPhase] = useState<SurvivorsPhase>("idle");
   const [hud, setHud] = useState<SurvivorsHud | null>(null);
   const [cards, setCards] = useState<CardDef[]>([]);
@@ -44,23 +47,29 @@ export default function SurvivorsGame() {
     let destroyed = false;
     let game: { destroy: (removeCanvas: boolean) => void } | null = null;
     (async () => {
-      const mod = await import("@/lib/phaser/survivors");
-      if (destroyed || !hostRef.current) return;
-      const handle = mod.createSurvivorsGame(hostRef.current, {
-        onPhase: (p) => setPhase(p),
-        onHud: (h) => setHud(h),
-        onLevelUp: (c, r) => {
-          setCards(c);
-          setRerolled(r);
-        },
-        onGameOver: (r) => {
-          setResult(r);
-          pushHistory(HIST_KEY, r.score);
-          setRefreshKey((k) => k + 1);
-        },
-      });
-      apiRef.current = handle.api;
-      game = { destroy: () => handle.destroy() };
+      try {
+        const mod = await import("@/lib/phaser/survivors");
+        if (destroyed || !hostRef.current) return;
+        const handle = mod.createSurvivorsGame(hostRef.current, {
+          onPhase: (p) => setPhase(p),
+          onHud: (h) => setHud(h),
+          onLevelUp: (c, r) => {
+            setCards(c);
+            setRerolled(r);
+          },
+          onGameOver: (r) => {
+            setResult(r);
+            pushHistory(HIST_KEY, r.score);
+            setRefreshKey((k) => k + 1);
+          },
+        });
+        apiRef.current = handle.api;
+        game = { destroy: () => handle.destroy() };
+        setBootState("ready");
+      } catch {
+        // 読み込み失敗時はスタートボタンが無反応でダイアログが残り続けないよう、明示的に知らせる
+        if (!destroyed) setBootState("error");
+      }
     })();
     return () => {
       destroyed = true;
@@ -91,7 +100,7 @@ export default function SurvivorsGame() {
 
   return (
     <>
-      <div className="fs-stage">
+      <div className="fs-stage" ref={stageRef}>
         <div ref={hostRef} className="fs-host" />
         {/* 上部バー */}
         <div className="fs-topbar">
@@ -104,6 +113,7 @@ export default function SurvivorsGame() {
             {phase === "paused" && (
               <button type="button" className="icon-btn" aria-label="再開" onClick={() => apiRef.current?.resume()}>▶️</button>
             )}
+            <FullscreenButton targetRef={stageRef} />
             <MuteButton />
           </span>
         </div>
@@ -149,7 +159,23 @@ export default function SurvivorsGame() {
               <br />
               60秒ごとにエリート、3分でボスが出現！
             </p>
-            <button type="button" className="big-btn" onClick={start}>▶ スタート</button>
+            <button
+              type="button"
+              className="big-btn"
+              disabled={bootState !== "ready"}
+              onClick={start}
+            >
+              {bootState === "loading" ? "読み込み中…" : "▶ スタート"}
+            </button>
+            {bootState === "error" && (
+              <p className="boot-error">
+                ゲームの読み込みに失敗しました。通信環境を確認して、もう一度お試しください。
+                <br />
+                <button type="button" className="sub-btn" onClick={() => window.location.reload()}>
+                  🔄 再読み込み
+                </button>
+              </p>
+            )}
             <PlayCountBadge count={count} loaded={loaded} />
           </div>
         )}

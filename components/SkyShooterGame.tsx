@@ -11,13 +11,16 @@ import PlayCountBadge from "./PlayCountBadge";
 import RecordsPanel from "./RecordsPanel";
 import ShareButton, { FollowLink } from "./ShareButton";
 import MuteButton from "./MuteButton";
+import FullscreenButton from "./FullscreenButton";
 
 const SLUG = "sky-shooter";
 const HIST_KEY = "mugi-games:sky:history";
 
 export default function SkyShooterGame() {
   const hostRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<SkyApi | null>(null);
+  const [bootState, setBootState] = useState<"loading" | "ready" | "error">("loading");
   const [phase, setPhase] = useState<SkyPhase>("idle");
   const [hud, setHud] = useState<SkyHud | null>(null);
   const [result, setResult] = useState<SkyResult | null>(null);
@@ -30,19 +33,25 @@ export default function SkyShooterGame() {
     let destroyed = false;
     let game: { destroy: (removeCanvas: boolean) => void } | null = null;
     (async () => {
-      const mod = await import("@/lib/phaser/skyShooter");
-      if (destroyed || !hostRef.current) return;
-      const handle = mod.createSkyShooterGame(hostRef.current, {
-        onPhase: (p) => setPhase(p),
-        onHud: (h) => setHud(h),
-        onGameOver: (r) => {
-          setResult(r);
-          pushHistory(HIST_KEY, r.score);
-          setRefreshKey((k) => k + 1);
-        },
-      });
-      apiRef.current = handle.api;
-      game = { destroy: () => handle.destroy() };
+      try {
+        const mod = await import("@/lib/phaser/skyShooter");
+        if (destroyed || !hostRef.current) return;
+        const handle = mod.createSkyShooterGame(hostRef.current, {
+          onPhase: (p) => setPhase(p),
+          onHud: (h) => setHud(h),
+          onGameOver: (r) => {
+            setResult(r);
+            pushHistory(HIST_KEY, r.score);
+            setRefreshKey((k) => k + 1);
+          },
+        });
+        apiRef.current = handle.api;
+        game = { destroy: () => handle.destroy() };
+        setBootState("ready");
+      } catch {
+        // 読み込み失敗時はスタートボタンが無反応でダイアログが残り続けないよう、明示的に知らせる
+        if (!destroyed) setBootState("error");
+      }
     })();
     return () => {
       destroyed = true;
@@ -73,7 +82,7 @@ export default function SkyShooterGame() {
 
   return (
     <>
-      <div className="fs-stage">
+      <div className="fs-stage" ref={stageRef}>
         <div ref={hostRef} className="fs-host" />
         <div className="fs-topbar">
           <Link href="/" className="fs-back">← 一覧</Link>
@@ -88,6 +97,7 @@ export default function SkyShooterGame() {
             {phase === "paused" && (
               <button type="button" className="icon-btn" aria-label="再開" onClick={() => apiRef.current?.resume()}>▶️</button>
             )}
+            <FullscreenButton targetRef={stageRef} />
             <MuteButton />
           </span>
         </div>
@@ -130,7 +140,23 @@ export default function SkyShooterGame() {
               <br />
               ステージ終盤にはボス🌩️が待ち構える！
             </p>
-            <button type="button" className="big-btn" onClick={start}>▶ 出撃！</button>
+            <button
+              type="button"
+              className="big-btn"
+              disabled={bootState !== "ready"}
+              onClick={start}
+            >
+              {bootState === "loading" ? "読み込み中…" : "▶ 出撃！"}
+            </button>
+            {bootState === "error" && (
+              <p className="boot-error">
+                ゲームの読み込みに失敗しました。通信環境を確認して、もう一度お試しください。
+                <br />
+                <button type="button" className="sub-btn" onClick={() => window.location.reload()}>
+                  🔄 再読み込み
+                </button>
+              </p>
+            )}
             <PlayCountBadge count={count} loaded={loaded} />
           </div>
         )}

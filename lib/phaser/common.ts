@@ -58,9 +58,21 @@ export function attachDprResize(game: Phaser.Game, parent: HTMLElement): () => v
   const ro = new ResizeObserver(apply);
   ro.observe(parent);
   window.addEventListener("orientationchange", apply);
+  // 全画面の開始/終了直後はレイアウト確定が遅れることがあるので、少し遅らせても再適用する
+  let fsTimer: ReturnType<typeof setTimeout> | null = null;
+  const onFsChange = () => {
+    requestAnimationFrame(apply);
+    if (fsTimer) clearTimeout(fsTimer);
+    fsTimer = setTimeout(apply, 300);
+  };
+  document.addEventListener("fullscreenchange", onFsChange);
+  document.addEventListener("webkitfullscreenchange", onFsChange);
   return () => {
     ro.disconnect();
     window.removeEventListener("orientationchange", apply);
+    document.removeEventListener("fullscreenchange", onFsChange);
+    document.removeEventListener("webkitfullscreenchange", onFsChange);
+    if (fsTimer) clearTimeout(fsTimer);
   };
 }
 

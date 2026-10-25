@@ -1084,3 +1084,34 @@ a {
   width: 100% !important;
   height: 100% !important;
 }
+
+/* ---- 真の全画面（Fullscreen API）と最大化フォールバック ---- */
+/* ネイティブ全画面時はステージが画面そのものになるので、高さの「ヘッダー分マイナス」を解除する */
+.fs-stage:fullscreen {
+  width: 100%;
+  height: 100% !important;
+}
+.fs-stage:-webkit-full-screen {
+  width: 100%;
+  height: 100% !important;
+}
+/* iPhone Safari 等で Fullscreen API が使えない場合の最大化モード：
+   ステージを fixed で画面いっぱいに広げ、ヘッダーは下に隠れる */
+.fs-stage.fs-max {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  width: 100dvw;
+  height: 100vh;
+  height: 100dvh;
+  z-index: 200;
+}
+body.fs-lock {
+  overflow: hidden;
+}
+
+/* ゲームの読み込みに失敗したときの案内 */
+.boot-error {
+  color: #c0392b;
+  font-weight: 700;
+}
