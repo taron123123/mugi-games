@@ -216,7 +216,7 @@ class SurvivorsScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.load.image("mugi-raw", "/mugi.webp");
+    this.load.image("mugi-alpha", "/mugi-transparent.png");
   }
 
   create(): void {
@@ -233,8 +233,8 @@ class SurvivorsScene extends Phaser.Scene {
 
     this.fxG = this.add.graphics().setDepth(40);
 
-    // プレイヤー（本人のアバター画像）
-    this.playerImg = this.add.image(0, 0, "mugi-circle").setDisplaySize(48, 48);
+    // プレイヤー（本人のアバター画像・透過PNG。キャラ実高さが約50pxになるサイズ）
+    this.playerImg = this.add.image(0, 0, "mugi-alpha").setDisplaySize(57, 57);
     this.playerBase = this.playerImg.scaleX;
     this.playerShadow = this.add.image(0, 24, "tex-dot").setDisplaySize(46, 15).setTint(0x354624).setAlpha(0.3);
     this.player = this.add.container(this.px, this.py, [this.playerShadow, this.playerImg]).setDepth(30);
@@ -587,21 +587,108 @@ class SurvivorsScene extends Phaser.Scene {
       g.fillStyle(0xfff3b0, 1);
       g.fillCircle(12, 12, 4.5);
     });
+    // 経験値ジェム：麦畑の緑・茶に埋もれない鮮やかなマゼンタ＋白フチ＋グロー（ダイヤ型）
     genTex(this, "gem1", 28, 28, (g) => {
-      g.fillStyle(0xffdf6a, 0.35);
-      g.fillCircle(14, 14, 12);
-      g.fillStyle(0xffd05a, 1);
-      g.fillEllipse(14, 14, 9, 16);
-      g.lineStyle(2, 0xa9742e, 1);
-      g.lineBetween(12, 19, 16, 9);
+      g.fillStyle(0xff4da6, 0.22);
+      g.fillCircle(14, 14, 13.5);
+      g.fillStyle(0xff4da6, 0.28);
+      g.fillCircle(14, 14, 10);
+      // 白フチ（ひと回り大きいダイヤを下に敷く）
+      g.fillStyle(0xffffff, 1);
+      g.fillPoints(
+        [
+          { x: 14, y: 1.5 },
+          { x: 25.5, y: 11 },
+          { x: 14, y: 26.5 },
+          { x: 2.5, y: 11 },
+        ],
+        true
+      );
+      // 本体マゼンタ
+      g.fillStyle(0xff4da6, 1);
+      g.fillPoints(
+        [
+          { x: 14, y: 5 },
+          { x: 22, y: 11 },
+          { x: 14, y: 23 },
+          { x: 6, y: 11 },
+        ],
+        true
+      );
+      // ファセット：上は明るく、下は濃く
+      g.fillStyle(0xffa8d2, 0.85);
+      g.fillPoints(
+        [
+          { x: 14, y: 5 },
+          { x: 22, y: 11 },
+          { x: 6, y: 11 },
+        ],
+        true
+      );
+      g.fillStyle(0xd1107c, 0.8);
+      g.fillPoints(
+        [
+          { x: 6, y: 11 },
+          { x: 22, y: 11 },
+          { x: 14, y: 23 },
+        ],
+        true
+      );
+      // ハイライト
+      g.fillStyle(0xffffff, 0.95);
+      g.fillCircle(11, 8.5, 1.8);
     });
     genTex(this, "gem5", 36, 36, (g) => {
-      g.fillStyle(0xffdf6a, 0.4);
-      g.fillCircle(18, 18, 16);
-      g.fillStyle(0xfff1aa, 1);
-      g.fillEllipse(18, 18, 13, 22);
-      g.lineStyle(2, 0xa9742e, 1);
-      g.lineBetween(16, 24, 20, 12);
+      g.fillStyle(0xff4da6, 0.25);
+      g.fillCircle(18, 18, 17.5);
+      g.fillStyle(0xff4da6, 0.3);
+      g.fillCircle(18, 18, 13);
+      // 白フチ
+      g.fillStyle(0xffffff, 1);
+      g.fillPoints(
+        [
+          { x: 18, y: 2 },
+          { x: 33, y: 14 },
+          { x: 18, y: 34 },
+          { x: 3, y: 14 },
+        ],
+        true
+      );
+      // 本体マゼンタ
+      g.fillStyle(0xff4da6, 1);
+      g.fillPoints(
+        [
+          { x: 18, y: 6 },
+          { x: 29, y: 14 },
+          { x: 18, y: 30 },
+          { x: 7, y: 14 },
+        ],
+        true
+      );
+      // ファセット
+      g.fillStyle(0xffa8d2, 0.85);
+      g.fillPoints(
+        [
+          { x: 18, y: 6 },
+          { x: 29, y: 14 },
+          { x: 7, y: 14 },
+        ],
+        true
+      );
+      g.fillStyle(0xd1107c, 0.8);
+      g.fillPoints(
+        [
+          { x: 7, y: 14 },
+          { x: 29, y: 14 },
+          { x: 18, y: 30 },
+        ],
+        true
+      );
+      // ハイライト＋きらめき
+      g.fillStyle(0xffffff, 0.95);
+      g.fillCircle(14, 11, 2.3);
+      g.fillStyle(0xffffff, 0.85);
+      g.fillCircle(24, 9, 1.3);
     });
     // 回転ガマの刃（弧を描く銀の刃＋金の柄）
     genTex(this, "blade", 64, 64, (g) => {
@@ -761,39 +848,20 @@ class SurvivorsScene extends Phaser.Scene {
       g.fillRect(0, 0, 256, 256);
     });
 
-    // むぎアイコンを円形に切り抜いたキャンバステクスチャ
-    if (!this.textures.exists("mugi-circle")) {
-      try {
-        const src = this.textures.get("mugi-raw").getSourceImage() as HTMLImageElement;
-        const canvas = document.createElement("canvas");
-        canvas.width = 96;
-        canvas.height = 96;
-        const c2 = canvas.getContext("2d");
-        if (c2 && src.width > 0) {
-          c2.beginPath();
-          c2.arc(48, 48, 47, 0, Math.PI * 2);
-          c2.fillStyle = "#ffffff";
-          c2.fill();
-          c2.clip();
-          c2.drawImage(src, 2, 2, 92, 92);
-          this.textures.addCanvas("mugi-circle", canvas);
-        }
-      } catch {
-        /* フォールバックへ */
-      }
-    }
-    if (!this.textures.exists("mugi-circle")) {
-      genTex(this, "mugi-circle", 96, 96, (g) => {
-        g.fillStyle(0xffffff, 1);
-        g.fillCircle(48, 48, 47);
-        g.fillStyle(0xaee3ff, 1);
-        g.fillCircle(48, 48, 42);
-        g.fillStyle(0x23405a, 1);
-        g.fillCircle(36, 44, 5);
-        g.fillCircle(60, 44, 5);
-        g.fillEllipse(48, 58, 16, 9);
-      });
-    }
+    // むぎアイコンは透過PNG（mugi-alpha）をそのまま使う（白い背面は付けない）。
+    // 読み込みに失敗した場合のみ、描画フォールバックを用意する（genTex は既存テクスチャがあれば何もしない）。
+    genTex(this, "mugi-alpha", 96, 96, (g) => {
+      g.fillStyle(0xaee3ff, 1);
+      g.fillCircle(48, 50, 40);
+      g.fillStyle(0xfff1d6, 1);
+      g.fillEllipse(48, 42, 54, 44);
+      g.fillStyle(0x23405a, 1);
+      g.fillCircle(37, 40, 4.5);
+      g.fillCircle(59, 40, 4.5);
+      g.fillStyle(0xf2a0a0, 1);
+      g.fillCircle(30, 51, 5);
+      g.fillCircle(66, 51, 5);
+    });
   }
 
   layoutCamera(): void {
