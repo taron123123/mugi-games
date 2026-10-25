@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { SITE_URL } from "@/lib/games";
+import { FOLLOW_LINE, SITE_URL } from "@/lib/games";
 import { usePlayCounter } from "@/lib/usePlayCounter";
 import { pushHistory } from "@/lib/records";
 import { sfx } from "@/lib/sfx";
@@ -18,7 +18,7 @@ import {
 } from "@/lib/phaser/tdData";
 import PlayCountBadge from "./PlayCountBadge";
 import RecordsPanel from "./RecordsPanel";
-import ShareButton from "./ShareButton";
+import ShareButton, { FollowLink } from "./ShareButton";
 import MuteButton from "./MuteButton";
 
 const SLUG = "tower-defense";
@@ -118,7 +118,7 @@ export default function TowerDefenseGame() {
   };
 
   const shareText = result
-    ? `🏯『麦畑防衛戦』で WAVE ${result.wave} まで畑を守った！ 撃破${result.kills}・スコア${result.score.toLocaleString()}点 🌾 #むぎゲームズ ${SITE_URL}/games/tower-defense`
+    ? `🏯『麦畑防衛戦』で WAVE ${result.wave} まで畑を守った！ 撃破${result.kills}・スコア${result.score.toLocaleString()}点 🌾 #むぎゲームズ ${SITE_URL}/games/tower-defense\n${FOLLOW_LINE}`
     : "";
 
   const nextWave = hud.wave + 1;
@@ -282,6 +282,7 @@ export default function TowerDefenseGame() {
                 <button type="button" className="big-btn" onClick={startGame}>🔄 もう一度</button>
                 <ShareButton text={shareText} />
               </div>
+              <FollowLink />
             </div>
           </div>
         )}

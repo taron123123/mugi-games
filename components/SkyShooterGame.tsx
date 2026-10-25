@@ -2,14 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { SITE_URL } from "@/lib/games";
+import { FOLLOW_LINE, SITE_URL } from "@/lib/games";
 import { usePlayCounter } from "@/lib/usePlayCounter";
 import { pushHistory } from "@/lib/records";
 import { sfx } from "@/lib/sfx";
 import type { SkyApi, SkyHud, SkyPhase, SkyResult } from "@/lib/phaser/skyShooter";
 import PlayCountBadge from "./PlayCountBadge";
 import RecordsPanel from "./RecordsPanel";
-import ShareButton from "./ShareButton";
+import ShareButton, { FollowLink } from "./ShareButton";
 import MuteButton from "./MuteButton";
 
 const SLUG = "sky-shooter";
@@ -68,7 +68,7 @@ export default function SkyShooterGame() {
   };
 
   const shareText = result
-    ? `✈️『むぎスカイ』で STAGE ${result.stage} 到達！ スコア${result.score.toLocaleString()}点・かすり${result.graze}回 でした🌾 #むぎゲームズ ${SITE_URL}/games/sky-shooter`
+    ? `✈️『むぎスカイ』で STAGE ${result.stage} 到達！ スコア${result.score.toLocaleString()}点・かすり${result.graze}回 でした🌾 #むぎゲームズ ${SITE_URL}/games/sky-shooter\n${FOLLOW_LINE}`
     : "";
 
   return (
@@ -155,6 +155,7 @@ export default function SkyShooterGame() {
                 <button type="button" className="big-btn" onClick={start}>🔄 もう一度</button>
                 <ShareButton text={shareText} />
               </div>
+              <FollowLink />
             </div>
           </div>
         )}

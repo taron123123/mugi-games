@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
-import { SITE_URL } from "@/lib/games";
+import { SITE_URL, THREADS_URL } from "@/lib/games";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -51,6 +51,8 @@ export default function RootLayout({
             <Link href="/">ゲーム一覧</Link>
             {" / "}
             <a href="https://board.solo-guild.xyz">Guild Board</a>
+            {" / "}
+            <a href={THREADS_URL} target="_blank" rel="noopener noreferrer">🧵 Threadsでフォロー</a>
           </p>
         </footer>
       </body>

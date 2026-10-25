@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { SITE_URL } from "@/lib/games";
+import { FOLLOW_LINE, SITE_URL } from "@/lib/games";
 import { usePlayCounter } from "@/lib/usePlayCounter";
 import { pushHistory } from "@/lib/records";
 import { sfx } from "@/lib/sfx";
@@ -15,7 +15,7 @@ import type {
 } from "@/lib/phaser/survivors";
 import PlayCountBadge from "./PlayCountBadge";
 import RecordsPanel from "./RecordsPanel";
-import ShareButton from "./ShareButton";
+import ShareButton, { FollowLink } from "./ShareButton";
 import MuteButton from "./MuteButton";
 
 const SLUG = "survivors";
@@ -86,7 +86,7 @@ export default function SurvivorsGame() {
   };
 
   const shareText = result
-    ? `🌾『むぎサバイバーズ』で ${fmtTime(result.time)} 生き延びた！ 撃破${result.kills}・Lv${result.level}・スコア${result.score.toLocaleString()}点 でした⚔️ #むぎゲームズ ${SITE_URL}/games/survivors`
+    ? `🌾『むぎサバイバーズ』で ${fmtTime(result.time)} 生き延びた！ 撃破${result.kills}・Lv${result.level}・スコア${result.score.toLocaleString()}点 でした⚔️ #むぎゲームズ ${SITE_URL}/games/survivors\n${FOLLOW_LINE}`
     : "";
 
   return (
@@ -202,6 +202,7 @@ export default function SurvivorsGame() {
                 <button type="button" className="big-btn" onClick={start}>🔄 もう一度</button>
                 <ShareButton text={shareText} />
               </div>
+              <FollowLink />
             </div>
           </div>
         )}

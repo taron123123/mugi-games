@@ -1,5 +1,11 @@
 export const SITE_URL = "https://games.solo-guild.xyz";
 
+export const THREADS_URL = "https://www.threads.com/@solo.guild555";
+
+/** 結果シェア文の末尾に付けるフォロー案内（1行） */
+export const FOLLOW_LINE =
+  "新作や開発の裏側は Threads で発信中🌾 @solo.guild555 をフォローしてね";
+
 export type GameInfo = {
   slug: string;
   title: string;
