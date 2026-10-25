@@ -5,6 +5,7 @@ import {
   baseGameConfig,
   dampFactor,
   ensureDot,
+  ensureRing,
   genTex,
   ImagePool,
   ParticlePool,
@@ -72,18 +73,28 @@ type EnemyE = {
   stage: number;
   seed: number;
   dead: boolean;
+  /** 羽ばたきフレーム（0/1） */
+  frame: number;
+  /** 通常時の表示スケール（setDisplaySize後の scaleX） */
+  baseScale: number;
+  /** 演出用タイマー（土煙・火花など） */
+  fxT: number;
+  /** エリート/ボスのオーラリング */
+  aura: Phaser.GameObjects.Image | null;
+  auraS: number;
 };
 type BulletE = { img: Phaser.GameObjects.Image; vx: number; vy: number; dmg: number; life: number };
 type MissileE = {
-  obj: Phaser.GameObjects.Text;
+  obj: Phaser.GameObjects.Image;
   vx: number;
   vy: number;
   targetId: number;
   dmg: number;
   life: number;
+  trailT: number;
   dead: boolean;
 };
-type GemE = { img: Phaser.GameObjects.Image; v: number; vx: number; vy: number; dead: boolean };
+type GemE = { img: Phaser.GameObjects.Image; v: number; vx: number; vy: number; seed: number; dead: boolean };
 type HealE = { obj: Phaser.GameObjects.Text; x: number; y: number; dead: boolean };
 type HazardE = {
   x: number; y: number; r: number; timer: number; active: number;
@@ -138,7 +149,7 @@ class SurvivorsScene extends Phaser.Scene {
   gems: GemE[] = [];
   heals: HealE[] = [];
   hazards: HazardE[] = [];
-  bolts: { pts: { x: number; y: number }[]; ttl: number }[] = [];
+  bolts: { pts: { x: number; y: number }[]; ttl: number; seed: number }[] = [];
   shotCd = 0;
   missileCd = 1;
   thunderCd = 2;
@@ -165,6 +176,12 @@ class SurvivorsScene extends Phaser.Scene {
   // ---- 表示オブジェクト ----
   player!: Phaser.GameObjects.Container;
   playerImg!: Phaser.GameObjects.Image;
+  playerShadow!: Phaser.GameObjects.Image;
+  playerBase = 0.5;
+  hurtAnim = 0;
+  lvlAnim = 0;
+  trailT = 0;
+  faceFlip = false;
   beamImg!: Phaser.GameObjects.Image;
   beamRing!: Phaser.GameObjects.Image;
   fxG!: Phaser.GameObjects.Graphics;
@@ -175,10 +192,20 @@ class SurvivorsScene extends Phaser.Scene {
   bulletPool!: ImagePool;
   gemPool!: ImagePool;
   particlePool!: ParticlePool;
+  sparklePool!: ParticlePool;
   texts!: TextPool;
-  bladeObjs: Phaser.GameObjects.Text[] = [];
-  missileFree: Phaser.GameObjects.Text[] = [];
+  bladeObjs: Phaser.GameObjects.Image[] = [];
+  missileFree: Phaser.GameObjects.Image[] = [];
   healFree: Phaser.GameObjects.Text[] = [];
+  /** 撃破時の残像フェード用プール */
+  ghosts: { img: Phaser.GameObjects.Image; life: number }[] = [];
+  ghostFree: Phaser.GameObjects.Image[] = [];
+  /** ワールド装飾（木・岩・花・柵・干し草・麦の束） */
+  propsArr: { img: Phaser.GameObjects.Image; phase: number; sway: boolean }[] = [];
+  /** 漂う花粉・花びら */
+  motes: { img: Phaser.GameObjects.Image; phase: number; spd: number }[] = [];
+  /** フェーズ不問で進む演出時計 */
+  animT = 0;
   hudTimer = 0;
   uiScale = 1;
   booted = false;
@@ -195,6 +222,7 @@ class SurvivorsScene extends Phaser.Scene {
   create(): void {
     this.createTextures();
     ensureDot(this);
+    ensureRing(this);
 
     // 背景：麦畑タイル＋ワールド境界
     const bg = this.add.tileSprite(0, 0, WORLD, WORLD, "surv-bg").setOrigin(0, 0).setDepth(0);
@@ -205,10 +233,11 @@ class SurvivorsScene extends Phaser.Scene {
 
     this.fxG = this.add.graphics().setDepth(40);
 
-    // プレイヤー
+    // プレイヤー（本人のアバター画像）
     this.playerImg = this.add.image(0, 0, "mugi-circle").setDisplaySize(48, 48);
-    const shadow = this.add.image(0, 24, "tex-dot").setDisplaySize(46, 15).setTint(0x354624).setAlpha(0.3);
-    this.player = this.add.container(this.px, this.py, [shadow, this.playerImg]).setDepth(30);
+    this.playerBase = this.playerImg.scaleX;
+    this.playerShadow = this.add.image(0, 24, "tex-dot").setDisplaySize(46, 15).setTint(0x354624).setAlpha(0.3);
+    this.player = this.add.container(this.px, this.py, [this.playerShadow, this.playerImg]).setDepth(30);
 
     this.beamImg = this.add.image(0, 0, "beam-grad").setDisplaySize(56, 430).setOrigin(0.5, 1).setDepth(29).setVisible(false);
     this.beamRing = this.add.image(0, 0, "tex-ring").setDepth(29).setTint(0xfff6b6).setVisible(false);
@@ -216,6 +245,7 @@ class SurvivorsScene extends Phaser.Scene {
     this.bulletPool = new ImagePool(this, "shot-dot", 25);
     this.gemPool = new ImagePool(this, "gem1", 15);
     this.particlePool = new ParticlePool(new ImagePool(this, "tex-dot", 35));
+    this.sparklePool = new ParticlePool(new ImagePool(this, "tex-spark", 36));
     this.texts = new TextPool(this, 60, 20);
 
     this.bannerObj = this.add
@@ -237,9 +267,12 @@ class SurvivorsScene extends Phaser.Scene {
     this.joyKnob = this.add.image(0, 0, "tex-dot").setDisplaySize(44, 44).setTint(0x23405a).setAlpha(0.55).setDepth(96).setScrollFactor(0).setVisible(false);
 
     for (let i = 0; i < 5; i++) {
-      const t = this.add.text(0, 0, "🗡️", { fontSize: "26px", resolution: 2 }).setOrigin(0.5).setDepth(28).setVisible(false);
+      const t = this.add.image(0, 0, "blade").setDisplaySize(44, 44).setDepth(28).setVisible(false);
       this.bladeObjs.push(t);
     }
+
+    this.scatterProps();
+    this.initMotes();
 
     this.setupInput();
     this.layoutCamera();
@@ -252,28 +285,150 @@ class SurvivorsScene extends Phaser.Scene {
     }
   }
 
+  /** ワールド全域に装飾プロップを散らす（プレイヤー初期位置の周囲は空ける） */
+  scatterProps(): void {
+    const kinds: { tex: string; size: number; sway: boolean; w: number }[] = [
+      { tex: "prop-tuft", size: 46, sway: true, w: 34 },
+      { tex: "prop-flower", size: 54, sway: true, w: 22 },
+      { tex: "prop-rock", size: 58, sway: false, w: 14 },
+      { tex: "prop-fence", size: 92, sway: false, w: 12 },
+      { tex: "prop-hay", size: 62, sway: false, w: 10 },
+      { tex: "prop-tree", size: 118, sway: false, w: 8 },
+    ];
+    const totalW = kinds.reduce((a, k) => a + k.w, 0);
+    for (let i = 0; i < 120; i++) {
+      const x = 50 + Math.random() * (WORLD - 100);
+      const y = 50 + Math.random() * (WORLD - 100);
+      if (Math.hypot(x - WORLD / 2, y - WORLD / 2) < 150) continue;
+      let roll = Math.random() * totalW;
+      let kind = kinds[0];
+      for (const k of kinds) {
+        roll -= k.w;
+        if (roll <= 0) { kind = k; break; }
+      }
+      const img = this.add
+        .image(x, y, kind.tex)
+        .setDisplaySize(kind.size, kind.size)
+        .setDepth(kind.tex === "prop-tree" ? 6 : 5);
+      if (kind.tex === "prop-fence") img.setRotation(Math.random() < 0.5 ? 0 : Math.PI / 2);
+      this.propsArr.push({ img, phase: Math.random() * Math.PI * 2, sway: kind.sway });
+    }
+  }
+
+  /** 漂う花粉・花びらを用意する */
+  initMotes(): void {
+    for (let i = 0; i < 24; i++) {
+      const petal = i % 2 === 0;
+      const img = this.add
+        .image(Math.random() * WORLD, Math.random() * WORLD, petal ? "tex-petal" : "tex-dot")
+        .setDepth(44)
+        .setAlpha(petal ? 0.75 : 0.5);
+      if (petal) img.setDisplaySize(15, 10.5);
+      else img.setDisplaySize(5, 5).setTint(0xfff3a0);
+      this.motes.push({ img, phase: Math.random() * Math.PI * 2, spd: 0.7 + Math.random() * 0.7 });
+    }
+  }
+
+  /** フェーズ不問の環境アニメーション（小物の揺れ・花びらの漂い） */
+  ambientLogic(dt: number): void {
+    const t = this.animT;
+    for (const p of this.propsArr) {
+      if (p.sway) p.img.setRotation(Math.sin(t * 1.7 + p.phase) * 0.055);
+    }
+    const view = this.cameras.main.worldView;
+    for (const m of this.motes) {
+      m.img.x += (16 * m.spd + Math.sin(t * 0.9 + m.phase) * 9) * dt;
+      m.img.y += (6 + Math.cos(t * 0.7 + m.phase) * 8) * dt;
+      m.img.setRotation(t * 0.6 + m.phase);
+      // 画面外に出たら風上（左上）から再登場させる
+      if (
+        m.img.x > view.right + 30 || m.img.y > view.bottom + 30 ||
+        m.img.x < view.left - 60 || m.img.y < view.top - 60
+      ) {
+        m.img.x = view.left - 20 + Math.random() * 40;
+        m.img.y = view.top + Math.random() * Math.max(1, view.height);
+        if (m.img.x < 0 || m.img.y < 0 || m.img.x > WORLD || m.img.y > WORLD) {
+          m.img.x = Phaser.Math.Clamp(m.img.x, 10, WORLD - 10);
+          m.img.y = Phaser.Math.Clamp(m.img.y, 10, WORLD - 10);
+        }
+      }
+    }
+  }
+
+  /** 撃破時の残像（拡大しながらフェード）を出す */
+  spawnGhost(e: EnemyE): void {
+    const img = this.ghostFree.pop() ?? this.add.image(0, 0, `enemy-${e.kind}`);
+    img.setTexture(`enemy-${e.kind}`);
+    img.setPosition(e.img.x, e.img.y);
+    img.setRotation(e.img.rotation);
+    img.setScale(e.baseScale * 1.02);
+    img.setAlpha(0.8);
+    img.setDepth(19);
+    img.setActive(true).setVisible(true);
+    img.clearTint();
+    this.ghosts.push({ img, life: 0 });
+  }
+
   createTextures(): void {
-    // 麦畑タイル（180x180）
+    // 麦畑タイル（180x180）— 草の濃淡・麦の穂・小花・小石まで描き込む
     genTex(this, "surv-bg", 180, 180, (g) => {
       g.fillStyle(0xc9dd7e, 1);
       g.fillRect(0, 0, 180, 180);
-      g.fillStyle(0x785a14, 0.1);
+      // 草地のムラ
+      g.fillStyle(0xb7d16a, 0.5);
+      g.fillEllipse(46, 42, 92, 46);
+      g.fillEllipse(146, 132, 104, 52);
+      g.fillStyle(0xd8ec9a, 0.35);
+      g.fillEllipse(120, 36, 70, 30);
+      g.fillEllipse(30, 150, 66, 30);
+      g.fillStyle(0x785a14, 0.08);
       g.fillEllipse(40, 50, 42, 14);
       g.fillEllipse(130, 120, 52, 16);
       g.fillEllipse(90, 160, 36, 12);
-      g.lineStyle(2, 0x719344, 0.5);
-      for (const [x, y] of [[30, 90], [80, 40], [140, 70], [60, 140], [160, 160], [110, 100]] as const) {
-        g.lineBetween(x, y + 10, x + 3, y - 12);
-        g.lineBetween(x + 3, y - 6, x - 3, y - 10);
-        g.lineBetween(x + 3, y - 6, x + 9, y - 10);
-      }
-      g.fillStyle(0xf9eed7, 1);
-      g.fillCircle(150, 30, 4);
-      g.fillCircle(24, 150, 3);
+      // 草の穂先ドット（ノイズ）
+      let nz = 1234567;
+      const rnd = () => {
+        nz = (nz * 1103515245 + 12345) % 2147483648;
+        return nz / 2147483648;
+      };
+      g.fillStyle(0x719344, 0.35);
+      for (let i = 0; i < 90; i++) g.fillCircle(rnd() * 180, rnd() * 180, 1.4);
+      g.fillStyle(0xe6f2ae, 0.4);
+      for (let i = 0; i < 50; i++) g.fillCircle(rnd() * 180, rnd() * 180, 1.1);
+      // 麦の茎＋穂
+      const stalk = (x: number, y: number, lean: number) => {
+        g.lineStyle(2, 0xa8842e, 0.85);
+        g.lineBetween(x, y + 12, x + lean, y - 12);
+        g.fillStyle(0xe8c95a, 1);
+        for (let k = 0; k < 3; k++) {
+          g.fillEllipse(x + lean - 3 + k * 3, y - 13 - k * 2, 4.5, 7);
+        }
+        g.lineStyle(1.4, 0x719344, 0.55);
+        g.lineBetween(x + lean, y - 4, x - 4, y - 8);
+        g.lineBetween(x + lean, y - 4, x + 9 + lean, y - 8);
+      };
+      stalk(30, 90, 3);
+      stalk(80, 40, 2);
+      stalk(140, 70, 4);
+      stalk(60, 140, 3);
+      stalk(160, 160, 2);
+      stalk(110, 100, 3);
+      stalk(18, 26, 2);
+      stalk(168, 104, 3);
+      // 小花と小石
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(150, 30, 3.4);
+      g.fillCircle(24, 150, 2.8);
+      g.fillStyle(0xffb7d5, 1);
+      g.fillCircle(96, 158, 3);
+      g.fillCircle(52, 66, 2.6);
+      g.fillStyle(0x9aa3a8, 0.6);
+      g.fillEllipse(122, 148, 7, 4.4);
+      g.fillEllipse(38, 112, 5.4, 3.6);
     });
 
     const SS = 2; // テクスチャのスーパーサンプリング
-    const enemyTex = (kind: EnemyKind, draw: (g: Phaser.GameObjects.Graphics, c: number) => void) => {
+    const enemyTex = (kind: string, draw: (g: Phaser.GameObjects.Graphics, c: number) => void) => {
       const size = 120 * SS;
       genTex(this, `enemy-${kind}`, size, size, (g) => {
         g.save();
@@ -298,6 +453,17 @@ class SurvivorsScene extends Phaser.Scene {
       g.fillStyle(0xfff0a8, 1);
       g.fillCircle(c + 5, c - 7, 3);
     });
+    // カラス：翼を下ろしたフレーム
+    enemyTex("crow-f1", (g, c) => {
+      g.fillStyle(0x42536a, 1);
+      g.fillTriangle(c, c, c - 48, c + 20, c - 13, c + 10);
+      g.fillTriangle(c, c, c + 48, c + 20, c + 13, c + 10);
+      bodyGrad(g, c, 0x53677f, 0x172238);
+      g.fillStyle(0xf4b948, 1);
+      g.fillTriangle(c + 4, c - 14, c + 22, c - 8, c + 3, c - 4);
+      g.fillStyle(0xfff0a8, 1);
+      g.fillCircle(c + 5, c - 7, 3);
+    });
     enemyTex("bat", (g, c) => {
       g.fillStyle(0x6d5580, 1);
       g.fillTriangle(c, c, c - 50, c - 26, c - 30, c + 4);
@@ -310,10 +476,38 @@ class SurvivorsScene extends Phaser.Scene {
       g.fillStyle(0xffd7d7, 1);
       g.fillCircle(c + 4, c - 6, 3);
     });
+    // コウモリ：翼を下ろしたフレーム
+    enemyTex("bat-f1", (g, c) => {
+      g.fillStyle(0x6d5580, 1);
+      g.fillTriangle(c, c, c - 50, c + 22, c - 28, c + 8);
+      g.fillTriangle(c - 28, c + 8, c - 40, c + 26, c - 10, c + 13);
+      g.fillTriangle(c, c, c + 50, c + 22, c + 28, c + 8);
+      g.fillTriangle(c + 28, c + 8, c + 40, c + 26, c + 10, c + 13);
+      bodyGrad(g, c, 0x7d6394, 0x241a33);
+      g.fillStyle(0xf4b948, 1);
+      g.fillTriangle(c + 3, c - 12, c + 18, c - 7, c + 2, c - 3);
+      g.fillStyle(0xffd7d7, 1);
+      g.fillCircle(c + 4, c - 6, 3);
+    });
     enemyTex("bee", (g, c) => {
       g.fillStyle(0xe6faff, 0.75);
       g.fillEllipse(c - 16, c - 16, 30, 13);
       g.fillEllipse(c + 16, c - 16, 30, 13);
+      g.fillStyle(0xffcd4d, 1);
+      g.fillEllipse(c, c, 40, 26);
+      g.fillStyle(0x49341e, 1);
+      g.fillRect(c - 8, c - 11, 6, 22);
+      g.fillRect(c + 4, c - 11, 6, 22);
+      g.fillTriangle(c - 20, c, c - 30, c - 4, c - 30, c + 4);
+    });
+    // ハチ：高速でブレた羽のフレーム
+    enemyTex("bee-f1", (g, c) => {
+      g.fillStyle(0xe6faff, 0.3);
+      g.fillEllipse(c - 17, c - 17, 38, 16);
+      g.fillEllipse(c + 17, c - 17, 38, 16);
+      g.fillStyle(0xe6faff, 0.45);
+      g.fillEllipse(c - 16, c - 13, 30, 10);
+      g.fillEllipse(c + 16, c - 13, 30, 10);
       g.fillStyle(0xffcd4d, 1);
       g.fillEllipse(c, c, 40, 26);
       g.fillStyle(0x49341e, 1);
@@ -408,6 +602,154 @@ class SurvivorsScene extends Phaser.Scene {
       g.fillEllipse(18, 18, 13, 22);
       g.lineStyle(2, 0xa9742e, 1);
       g.lineBetween(16, 24, 20, 12);
+    });
+    // 回転ガマの刃（弧を描く銀の刃＋金の柄）
+    genTex(this, "blade", 64, 64, (g) => {
+      g.lineStyle(6, 0x8a5a2e, 1);
+      g.lineBetween(36, 40, 54, 58);
+      g.fillStyle(0xffd94d, 1);
+      g.fillCircle(37, 41, 4);
+      g.lineStyle(8, 0xb9c7d4, 1);
+      g.beginPath();
+      g.arc(28, 36, 21, -2.2, 0.9, false);
+      g.strokePath();
+      g.lineStyle(3, 0xf4f9ff, 1);
+      g.beginPath();
+      g.arc(28, 36, 24, -2.2, 0.9, false);
+      g.strokePath();
+    });
+    // 追尾ミサイル（右向きロケット）
+    genTex(this, "missile", 48, 48, (g) => {
+      g.fillStyle(0xff8b3d, 1);
+      g.fillTriangle(6, 24, 17, 18, 17, 30);
+      g.fillStyle(0xffd23f, 1);
+      g.fillTriangle(11, 24, 17, 20.5, 17, 27.5);
+      g.fillStyle(0xe14b4b, 1);
+      g.fillTriangle(18, 17, 26, 10, 28, 18);
+      g.fillTriangle(18, 31, 26, 38, 28, 30);
+      g.fillStyle(0xf2f5f7, 1);
+      g.fillEllipse(27, 24, 26, 15);
+      g.fillStyle(0xff8b3d, 1);
+      g.fillTriangle(40, 24, 33, 17.5, 33, 30.5);
+      g.fillStyle(0x7ec8f7, 1);
+      g.fillCircle(28, 24, 4);
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(29.5, 22.5, 1.6);
+    });
+    // 4方向に尖るキラキラ
+    genTex(this, "tex-spark", 24, 24, (g) => {
+      g.fillStyle(0xffffff, 1);
+      g.fillPoints(
+        [
+          { x: 12, y: 0 }, { x: 15, y: 9 }, { x: 24, y: 12 }, { x: 15, y: 15 },
+          { x: 12, y: 24 }, { x: 9, y: 15 }, { x: 0, y: 12 }, { x: 9, y: 9 },
+        ],
+        true,
+      );
+      g.fillCircle(12, 12, 3);
+    });
+    // 花びら（漂う環境パーティクル用）
+    genTex(this, "tex-petal", 20, 14, (g) => {
+      g.fillStyle(0xffd7e8, 1);
+      g.fillEllipse(10, 7, 18, 11);
+      g.fillStyle(0xfff0f7, 1);
+      g.fillEllipse(8, 5.5, 9, 5.5);
+    });
+    // ---- ワールド装飾プロップ ----
+    genTex(this, "prop-tree", 120, 120, (g) => {
+      g.fillStyle(0x354624, 0.18);
+      g.fillEllipse(60, 100, 62, 15);
+      g.fillStyle(0x7a4a26, 1);
+      g.fillRect(54, 60, 12, 38);
+      g.fillStyle(0x4e7d3a, 1);
+      g.fillCircle(60, 42, 27);
+      g.fillStyle(0x5d8f45, 1);
+      g.fillCircle(38, 54, 19);
+      g.fillCircle(82, 54, 19);
+      g.fillStyle(0x6da352, 1);
+      g.fillCircle(60, 28, 18);
+      g.fillStyle(0x8fbf6f, 0.8);
+      g.fillCircle(48, 34, 5);
+      g.fillCircle(72, 46, 4.4);
+      g.fillCircle(58, 54, 4);
+      g.fillStyle(0xe14b4b, 1);
+      g.fillCircle(44, 48, 3.6);
+      g.fillCircle(76, 34, 3.6);
+      g.fillCircle(64, 62, 3.6);
+    });
+    genTex(this, "prop-rock", 64, 52, (g) => {
+      g.fillStyle(0x354624, 0.16);
+      g.fillEllipse(32, 42, 48, 10);
+      g.fillStyle(0x8b959b, 1);
+      g.fillEllipse(32, 28, 50, 34);
+      g.fillStyle(0xa7b0b5, 1);
+      g.fillEllipse(26, 21, 30, 18);
+      g.fillStyle(0x6f797f, 1);
+      g.fillEllipse(42, 34, 22, 13);
+      g.fillStyle(0xc9d1d5, 0.9);
+      g.fillEllipse(21, 17, 11, 6);
+    });
+    genTex(this, "prop-flower", 56, 56, (g) => {
+      g.lineStyle(2, 0x5d8f45, 0.9);
+      g.lineBetween(16, 52, 15, 34);
+      g.lineBetween(30, 54, 31, 30);
+      g.lineBetween(43, 52, 42, 36);
+      const flower = (x: number, y: number, petal: number) => {
+        g.fillStyle(petal, 1);
+        for (let k = 0; k < 5; k++) {
+          const a = (k * Math.PI * 2) / 5 - Math.PI / 2;
+          g.fillCircle(x + Math.cos(a) * 5, y + Math.sin(a) * 5, 4);
+        }
+        g.fillStyle(0xffd94d, 1);
+        g.fillCircle(x, y, 3.2);
+      };
+      flower(15, 28, 0xff8fc0);
+      flower(31, 23, 0xffffff);
+      flower(42, 30, 0xffb35c);
+      g.fillStyle(0x6da352, 1);
+      g.fillEllipse(23, 50, 15, 6);
+      g.fillEllipse(38, 48, 13, 5.4);
+    });
+    genTex(this, "prop-fence", 96, 44, (g) => {
+      g.fillStyle(0x354624, 0.14);
+      g.fillEllipse(48, 38, 86, 8);
+      g.fillStyle(0xa4763f, 1);
+      g.fillRect(4, 13, 88, 7);
+      g.fillRect(4, 27, 88, 7);
+      g.fillStyle(0x8a5f30, 1);
+      g.fillRect(10, 5, 9, 34);
+      g.fillRect(77, 5, 9, 34);
+      g.fillStyle(0xc08d4e, 1);
+      g.fillRect(4, 13, 88, 2.4);
+      g.fillRect(10, 5, 9, 3);
+      g.fillRect(77, 5, 9, 3);
+    });
+    genTex(this, "prop-hay", 66, 54, (g) => {
+      g.fillStyle(0x354624, 0.16);
+      g.fillEllipse(33, 44, 52, 10);
+      g.fillStyle(0xe3b93e, 1);
+      g.fillEllipse(33, 27, 54, 38);
+      g.lineStyle(3, 0xb98a1e, 0.85);
+      for (const r of [15, 10, 5.5]) {
+        g.beginPath();
+        g.arc(33, 27, r, 0.4, 5.6, false);
+        g.strokePath();
+      }
+      g.lineStyle(2.4, 0xb98a1e, 0.9);
+      g.lineBetween(8, 20, 58, 20);
+      g.lineBetween(8, 35, 58, 35);
+    });
+    genTex(this, "prop-tuft", 48, 48, (g) => {
+      for (const [dx, lean] of [[-13, -5], [-6, -2], [0, 1], [7, 4], [14, 7]] as const) {
+        g.lineStyle(2.2, 0xa8842e, 0.95);
+        g.lineBetween(24 + dx * 0.4, 47, 24 + dx + lean, 14);
+        g.fillStyle(0xe8c95a, 1);
+        for (let k = 0; k < 3; k++) {
+          g.fillEllipse(24 + dx + lean - 3 + k * 3, 13 - k * 2.4, 5, 8);
+        }
+      }
+      g.fillStyle(0x719344, 0.6);
+      g.fillEllipse(24, 45, 34, 7);
     });
     // レベルアップの光柱グラデーション
     genTex(this, "beam-grad", 64, 256, (g) => {
@@ -535,11 +877,19 @@ class SurvivorsScene extends Phaser.Scene {
   }
 
   resetState(): void {
-    for (const e of this.enemies) e.img.destroy();
+    for (const e of this.enemies) {
+      e.aura?.destroy();
+      e.img.destroy();
+    }
     for (const b of this.bullets) this.bulletPool.release(b.img);
     for (const m of this.missiles) m.obj.destroy();
     for (const g of this.gems) this.gemPool.release(g.img);
     for (const h of this.heals) h.obj.destroy();
+    for (const gh of this.ghosts) {
+      gh.img.setActive(false).setVisible(false);
+      this.ghostFree.push(gh.img);
+    }
+    this.ghosts = [];
     this.enemies = [];
     this.bullets = [];
     this.missiles = [];
@@ -548,7 +898,11 @@ class SurvivorsScene extends Phaser.Scene {
     this.hazards = [];
     this.bolts = [];
     this.particlePool?.clear();
+    this.sparklePool?.clear();
     this.texts?.clear();
+    this.hurtAnim = 0;
+    this.lvlAnim = 0;
+    this.trailT = 0;
     this.gtime = 0;
     this.px = WORLD / 2;
     this.py = WORLD / 2;
@@ -592,6 +946,8 @@ class SurvivorsScene extends Phaser.Scene {
   // ================= 更新 =================
   update(_time: number, deltaMs: number): void {
     const rawDt = Math.min(0.033, deltaMs / 1000);
+    this.animT += rawDt;
+    this.ambientLogic(rawDt);
     // ジョイスティック表示はフェーズ不問で追従
     if (this.joy.active && this.phase === "playing") {
       this.joyBase.setVisible(true).setPosition(this.joy.ox, this.joy.oy);
@@ -655,6 +1011,51 @@ class SurvivorsScene extends Phaser.Scene {
     s.player.rotation += (lean - s.player.rotation) * dampFactor(10, dt);
     const blink = s.gtime < s.invulnUntil && Math.floor(s.gtime * 14) % 2 === 0;
     s.playerImg.setAlpha(blink ? 0.35 : 1);
+    // ---- むぎのアニメーション（上下動・呼吸・つぶれ・向き） ----
+    const spdRatio = Math.min(1, Math.hypot(s.pvx, s.pvy) / maxSpd);
+    const bob = spdRatio > 0.04 ? Math.sin(s.gtime * 13) * 3.4 * spdRatio : 0;
+    s.playerImg.y = bob;
+    let asx = 1;
+    let asy = 1;
+    if (spdRatio > 0.04) {
+      const b = Math.sin(s.gtime * 13) * 0.05 * spdRatio;
+      asy += b;
+      asx -= b * 0.7;
+    } else {
+      const br = Math.sin(s.gtime * 2.1) * 0.03;
+      asy += br;
+      asx -= br * 0.6;
+    }
+    if (s.hurtAnim > 0) {
+      const p = Math.sin((1 - s.hurtAnim) * Math.PI);
+      asx += 0.22 * p;
+      asy -= 0.2 * p;
+      s.hurtAnim = Math.max(0, s.hurtAnim - dt * 3.4);
+    }
+    if (s.lvlAnim > 0) {
+      const p = Math.sin((1 - s.lvlAnim) * Math.PI);
+      asy += 0.3 * p;
+      asx -= 0.16 * p;
+      s.lvlAnim = Math.max(0, s.lvlAnim - dt * 2.6);
+    }
+    s.playerImg.setScale(s.playerBase * asx, s.playerBase * asy);
+    if (s.pvx < -40 && !s.faceFlip) { s.faceFlip = true; s.playerImg.setFlipX(true); }
+    else if (s.pvx > 40 && s.faceFlip) { s.faceFlip = false; s.playerImg.setFlipX(false); }
+    // 影は上下動に合わせて濃さ・大きさを変える
+    s.playerShadow.setAlpha(0.3 - bob * 0.012);
+    s.playerShadow.setDisplaySize(46 * (1 - bob * 0.014), 15 * (1 - bob * 0.014));
+    // 走行中のキラキラ軌跡
+    if (spdRatio > 0.35) {
+      s.trailT -= dt;
+      if (s.trailT <= 0) {
+        s.trailT = 0.055;
+        const tc = ["#ffffff", "#ffd94d", "#aee3ff"][Math.floor(Math.random() * 3)];
+        s.sparklePool.spawnOne(
+          s.px + (Math.random() - 0.5) * 20, s.py + 14 + Math.random() * 8,
+          -s.pvx * 0.12, -s.pvy * 0.12 + 14, tc, 6 + Math.random() * 4, 0.42, 0.9,
+        );
+      }
+    }
     // カメラは補間で滑らかに追従（境界でクランプ）
     const cam = s.cameras.main;
     const viewW = cam.width / cam.zoom;
@@ -674,6 +1075,14 @@ class SurvivorsScene extends Phaser.Scene {
       s.beamRing.setVisible(true).setPosition(s.px, s.py + 16);
       const rr = 40 + (0.85 - s.beam) * 130;
       s.beamRing.setDisplaySize(rr * 2, rr * 0.85).setAlpha(s.beam / 0.85);
+      // 光柱の中を星屑が昇る
+      for (let i = 0; i < 2; i++) {
+        s.sparklePool.spawnOne(
+          s.px + (Math.random() - 0.5) * 40, s.py + 16 + Math.random() * 10,
+          (Math.random() - 0.5) * 26, -(95 + Math.random() * 75),
+          Math.random() < 0.5 ? "#fff3b0" : "#ffffff", 6 + Math.random() * 5, 0.75, 0.92,
+        );
+      }
     } else {
       s.beamImg.setVisible(false);
       s.beamRing.setVisible(false);
@@ -750,6 +1159,18 @@ class SurvivorsScene extends Phaser.Scene {
     const img = s.add.image(x, y, `enemy-${kind}`).setDepth(20);
     const size = 120 * (base.r / 22);
     img.setDisplaySize(size, size);
+    const baseScale = img.scaleX;
+    img.setScale(baseScale * 0.15); // 出現ポップインの開始値
+    let aura: Phaser.GameObjects.Image | null = null;
+    let auraS = 0;
+    if (kind === "elite" || kind === "boss") {
+      aura = s.add.image(x, y, "tex-ring")
+        .setDepth(19)
+        .setTint(kind === "boss" ? 0xc58aff : 0xffd94d)
+        .setAlpha(0.65);
+      aura.setDisplaySize(size * 1.5, size * 1.5);
+      auraS = aura.scaleX;
+    }
     const e: EnemyE = {
       img, eid: s.nextId++, kind,
       hp: base.hp * scale, maxHp: base.hp * scale,
@@ -757,6 +1178,7 @@ class SurvivorsScene extends Phaser.Scene {
       dmg: base.dmg, r: base.r, xp: base.xp, score: base.score,
       flashT: 0, orbitHitAt: 0, age: 0, action: 2 + Math.random() * 3,
       aim: 0, stage: 1, seed: Math.random() * 10, dead: false,
+      frame: 0, baseScale, fxT: Math.random() * 0.1, aura, auraS,
     };
     s.enemies.push(e);
     return e;
@@ -787,6 +1209,11 @@ class SurvivorsScene extends Phaser.Scene {
           img.setPosition(s.px, s.py).setDisplaySize(11, 11).setDepth(25);
           s.bullets.push({ img, vx: Math.cos(a) * 540, vy: Math.sin(a) * 540, dmg: shotDmg, life: 1.1 });
         }
+        // マズルフラッシュ
+        s.particlePool.spawnOne(
+          s.px + Math.cos(baseAng) * 27, s.py + Math.sin(baseAng) * 27,
+          Math.cos(baseAng) * 42, Math.sin(baseAng) * 42, "#fff3b0", 14, 0.09,
+        );
         sfx.play("shoot");
       } else {
         s.shotCd = 0.08;
@@ -801,7 +1228,7 @@ class SurvivorsScene extends Phaser.Scene {
         const bx = s.px + Math.cos(a) * 80;
         const by = s.py + Math.sin(a) * 80;
         const blade = s.bladeObjs[i];
-        blade.setVisible(true).setPosition(bx, by).setRotation(a + Math.PI / 2);
+        blade.setVisible(true).setPosition(bx, by).setRotation(s.gtime * 11 + i * 1.7);
         for (const e of s.enemies) {
           if (e.dead) continue;
           if (s.gtime - e.orbitHitAt < 0.38) continue;
@@ -823,9 +1250,9 @@ class SurvivorsScene extends Phaser.Scene {
           const alive = s.enemies.filter((e) => !e.dead);
           const e = alive[Math.floor(Math.random() * alive.length)];
           const a = Math.random() * Math.PI * 2;
-          const obj = s.missileFree.pop() ?? s.add.text(0, 0, "🚀", { fontSize: "22px", resolution: 2 }).setOrigin(0.5).setDepth(26);
+          const obj = s.missileFree.pop() ?? s.add.image(0, 0, "missile").setDisplaySize(32, 32).setDepth(26);
           obj.setPosition(s.px, s.py).setVisible(true).setActive(true);
-          s.missiles.push({ obj, vx: Math.cos(a) * 160, vy: Math.sin(a) * 160, targetId: e.eid, dmg: 24 + 9 * w.missile, life: 3.5, dead: false });
+          s.missiles.push({ obj, vx: Math.cos(a) * 160, vy: Math.sin(a) * 160, targetId: e.eid, dmg: 24 + 9 * w.missile, life: 3.5, trailT: 0, dead: false });
         }
         sfx.play("shoot");
       }
@@ -844,14 +1271,16 @@ class SurvivorsScene extends Phaser.Scene {
         for (const e of sorted) {
           s.texts.spawn(e.img.x, e.img.y - e.r - 26, "⚡", "#ffe14d");
           s.particlePool.burst(e.img.x, e.img.y, "#ffe14d", 8, 170);
-          s.bolts.push({
-            pts: [
-              { x: e.img.x + (Math.random() - 0.5) * 30, y: e.img.y - 190 },
-              { x: e.img.x + (Math.random() - 0.5) * 16, y: e.img.y - 90 },
-              { x: e.img.x, y: e.img.y },
-            ],
-            ttl: 0.14,
-          });
+          // 稲妻はギザギザの多段ポリラインにする
+          const pts: { x: number; y: number }[] = [{ x: e.img.x + (Math.random() - 0.5) * 34, y: e.img.y - 200 }];
+          for (let j = 1; j <= 4; j++) {
+            pts.push({
+              x: e.img.x + (Math.random() - 0.5) * 40 * (1 - j / 6),
+              y: e.img.y - 200 + (200 * j) / 5,
+            });
+          }
+          pts.push({ x: e.img.x, y: e.img.y });
+          s.bolts.push({ pts, ttl: 0.16, seed: Math.random() * 10 });
           for (const t of s.enemies) {
             if (!t.dead && Math.hypot(t.img.x - e.img.x, t.img.y - e.img.y) < 92 + t.r) s.damageEnemy(t, tdmg);
           }
@@ -900,7 +1329,18 @@ class SurvivorsScene extends Phaser.Scene {
         m.vy = Math.sin(na) * spd;
         m.obj.x += m.vx * dt;
         m.obj.y += m.vy * dt;
-        m.obj.setRotation(Math.atan2(m.vy, m.vx) + Math.PI / 4);
+        m.obj.setRotation(Math.atan2(m.vy, m.vx));
+        // 炎の軌跡
+        m.trailT -= dt;
+        if (m.trailT <= 0) {
+          m.trailT = 0.03;
+          const ba = Math.atan2(m.vy, m.vx) + Math.PI;
+          s.particlePool.spawnOne(
+            m.obj.x + Math.cos(ba) * 15, m.obj.y + Math.sin(ba) * 15,
+            Math.cos(ba) * 34, Math.sin(ba) * 34,
+            Math.random() < 0.5 ? "#ff9f43" : "#ffd23f", 8, 0.22, 0.85,
+          );
+        }
         if (Math.hypot(t.img.x - m.obj.x, t.img.y - m.obj.y) < t.r + 12) {
           m.dead = true;
           s.particlePool.burst(m.obj.x, m.obj.y, "#ff9f43", 14, 190);
@@ -934,6 +1374,7 @@ class SurvivorsScene extends Phaser.Scene {
     for (let i = s.enemies.length - 1; i >= 0; i--) {
       const e = s.enemies[i];
       if (e.dead) {
+        e.aura?.destroy();
         e.img.destroy();
         s.enemies.splice(i, 1);
         continue;
@@ -995,7 +1436,7 @@ class SurvivorsScene extends Phaser.Scene {
       }
       e.img.x = Phaser.Math.Clamp(ex + Math.cos(e.aim) * speed * dt, e.r, WORLD - e.r);
       e.img.y = Phaser.Math.Clamp(ey + Math.sin(e.aim) * speed * dt, e.r, WORLD - e.r);
-      // 見た目の生命感（羽ばたき・うねり）
+      // ---- 見た目の生命感（羽ばたき・ポップイン・脈動・オーラ・土煙） ----
       if (e.kind === "crow" || e.kind === "bat" || e.kind === "elite") {
         e.img.setRotation(Math.sin(s.gtime * 9 + e.seed * 7) * 0.12);
       } else if (e.kind === "boss") {
@@ -1003,9 +1444,59 @@ class SurvivorsScene extends Phaser.Scene {
       } else if (e.kind === "bee") {
         e.img.setRotation(Math.sin(s.gtime * 16 + e.seed * 9) * 0.1);
       }
+      // 羽ばたきフレーム差し替え（変わった時だけ setTexture）
+      if (e.kind === "crow" || e.kind === "bat") {
+        const fr = Math.floor(s.gtime * 10 + e.seed * 3) % 2;
+        if (fr !== e.frame) {
+          e.frame = fr;
+          e.img.setTexture(fr === 1 ? `enemy-${e.kind}-f1` : `enemy-${e.kind}`);
+        }
+      } else if (e.kind === "bee") {
+        const fr = Math.floor(s.gtime * 24 + e.seed * 5) % 2;
+        if (fr !== e.frame) {
+          e.frame = fr;
+          e.img.setTexture(fr === 1 ? "enemy-bee-f1" : "enemy-bee");
+        }
+      }
+      // スケール：出現ポップイン（easeOutBack）＋嵐雲の発雷前脈動
+      const popT = Math.min(1, e.age / 0.22);
+      const c1 = 1.70158;
+      const popF = 1 + (c1 + 1) * Math.pow(popT - 1, 3) + c1 * Math.pow(popT - 1, 2);
+      let pulseF = 1;
+      if (e.kind === "cloud" && e.action > 0 && e.action < 1.05) {
+        pulseF = 1 + 0.11 * Math.sin(s.gtime * 18 + e.seed * 6);
+      }
+      e.img.setScale(e.baseScale * (popT >= 1 ? 1 : Math.max(0.15, popF)) * pulseF);
+      // オーラ追従（エリート/ボス）
+      if (e.aura) {
+        e.aura.setPosition(e.img.x, e.img.y);
+        e.aura.setScale(e.auraS * (1 + 0.07 * Math.sin(s.gtime * 3 + e.seed * 4)));
+        e.aura.setAlpha(0.5 + 0.22 * Math.sin(s.gtime * 3 + e.seed * 4));
+      }
+      // 演出パーティクル（イノシシ突進の土煙／嵐雲の帯電火花）
+      e.fxT -= dt;
+      if (e.fxT <= 0) {
+        if (e.kind === "boar" && e.action <= 0 && e.action > -0.65) {
+          e.fxT = 0.06;
+          s.particlePool.spawnOne(
+            e.img.x - Math.cos(e.aim) * e.r * 0.8, e.img.y - Math.sin(e.aim) * e.r * 0.8 + e.r * 0.45,
+            -Math.cos(e.aim) * 26 + (Math.random() - 0.5) * 22, -18 - Math.random() * 16,
+            "#cbb27f", 9 + Math.random() * 5, 0.42, 0.9,
+          );
+        } else if (e.kind === "cloud" && e.action > 0 && e.action < 1.05) {
+          e.fxT = 0.09;
+          s.particlePool.spawnOne(
+            e.img.x + (Math.random() - 0.5) * e.r * 1.7, e.img.y + (Math.random() - 0.5) * e.r * 1.4,
+            0, 12, "#ffe14d", 6, 0.24, 0.9,
+          );
+        } else {
+          e.fxT = 0.05;
+        }
+      }
       // 接触ダメージ
       if (Math.hypot(s.px - e.img.x, s.py - e.img.y) < e.r + PLAYER_R && s.gtime >= s.invulnUntil) {
         s.hp -= e.dmg;
+        s.hurtAnim = 1;
         s.invulnUntil = s.gtime + 0.6;
         s.cameras.main.shake(70, 0.0035);
         sfx.play("hurt");
@@ -1035,6 +1526,7 @@ class SurvivorsScene extends Phaser.Scene {
       h.y += h.vy * dt;
       if (h.active > 0 && Math.hypot(s.px - h.x, s.py - h.y) < h.r + PLAYER_R && s.gtime >= s.invulnUntil) {
         s.hp = Math.max(0, s.hp - 18);
+        s.hurtAnim = 1;
         s.invulnUntil = s.gtime + 0.6;
         s.cameras.main.shake(70, 0.0035);
         sfx.play("hurt");
@@ -1064,6 +1556,17 @@ class SurvivorsScene extends Phaser.Scene {
     if (s.kills % 100 === 0 || s.kills === 25 || s.kills === 50) s.setBanner(`${s.kills}体撃破！`, 2.5);
     if (e.kind === "elite" || e.kind === "boss") s.slow = 0.085;
     s.score += e.score;
+    // 残像フェード＋種別カラーの破片バースト
+    s.spawnGhost(e);
+    const burstColor =
+      e.kind === "crow" || e.kind === "bat" || e.kind === "elite"
+        ? "#dfe9f5"
+        : e.kind === "bee"
+          ? "#ffe9a8"
+          : e.kind === "boar"
+            ? "#caa27e"
+            : "#aebdd1";
+    s.particlePool.burst(e.img.x, e.img.y, burstColor, e.kind === "boss" ? 22 : 8, e.kind === "boss" ? 220 : 150, 3.6);
     s.particlePool.burst(
       e.img.x, e.img.y,
       e.kind === "cloud" || e.kind === "boss" ? "#8a93a6" : "#5b4a2f",
@@ -1091,7 +1594,7 @@ class SurvivorsScene extends Phaser.Scene {
     const img = this.gemPool.obtain();
     img.setTexture(v >= 5 ? "gem5" : "gem1");
     img.setPosition(x, y).setDepth(15);
-    this.gems.push({ img, v, vx, vy, dead: false });
+    this.gems.push({ img, v, vx, vy, seed: Math.random() * 10, dead: false });
   }
 
   dropHeal(x: number, y: number): void {
@@ -1111,6 +1614,7 @@ class SurvivorsScene extends Phaser.Scene {
       s.particlePool.burst(s.px, s.py, "#ffd94d", 26, 190);
       sfx.play("levelup");
       s.beam = 0.85;
+      s.lvlAnim = 1;
       s.rerolledFlag = false;
       s.pendingCards = s.pickCards(s.buildPool());
       s.hooks.onLevelUp(s.pendingCards.map(({ id, icon, name, desc }) => ({ id, icon, name, desc })), false);
@@ -1205,6 +1709,9 @@ class SurvivorsScene extends Phaser.Scene {
       g.vy *= drag;
       g.img.x += g.vx * dt;
       g.img.y += g.vy * dt;
+      // ジェムのきらめき（回転＋脈動）
+      g.img.setRotation(Math.sin(s.gtime * 2.6 + g.seed) * 0.35);
+      g.img.setScale(1 + 0.13 * Math.sin(s.gtime * 4.2 + g.seed * 2));
     }
     for (let i = s.heals.length - 1; i >= 0; i--) {
       const h = s.heals[i];
@@ -1223,7 +1730,23 @@ class SurvivorsScene extends Phaser.Scene {
   fxLogic(dt: number): void {
     const s = this;
     s.particlePool.update(dt);
+    s.sparklePool.update(dt);
     s.texts.update(dt, 34);
+    // 撃破残像のフェード
+    for (let i = s.ghosts.length - 1; i >= 0; i--) {
+      const gh = s.ghosts[i];
+      gh.life += dt;
+      const r = gh.life / 0.3;
+      if (r >= 1) {
+        gh.img.setActive(false).setVisible(false);
+        s.ghostFree.push(gh.img);
+        s.ghosts.splice(i, 1);
+      } else {
+        gh.img.setAlpha(0.8 * (1 - r));
+        const base = gh.img.scaleX;
+        gh.img.setScale(base * (1 + 0.35 * dt / 0.3));
+      }
+    }
     // バナー
     if (s.bannerText && s.gtime < s.bannerUntil) {
       s.bannerObj.setText(s.bannerText).setVisible(true);
@@ -1279,11 +1802,21 @@ class SurvivorsScene extends Phaser.Scene {
         s.bolts.splice(i, 1);
         continue;
       }
-      g.lineStyle(4, 0xffe14d, Math.max(0, b.ttl / 0.14));
-      g.beginPath();
-      g.moveTo(b.pts[0].x, b.pts[0].y);
-      for (let j = 1; j < b.pts.length; j++) g.lineTo(b.pts[j].x, b.pts[j].y);
-      g.strokePath();
+      // フリッカーする3重描画（グロー→本体→白い芯）
+      const ratio = Math.max(0, b.ttl / 0.16);
+      const flick = 0.72 + 0.28 * Math.sin(s.gtime * 95 + b.seed * 8);
+      const passes: [number, number, number][] = [
+        [8, 0xffe14d, 0.3],
+        [4, 0xffe14d, 0.9],
+        [2, 0xffffff, 1],
+      ];
+      for (const [wdt, col, mul] of passes) {
+        g.lineStyle(wdt, col, ratio * flick * mul);
+        g.beginPath();
+        g.moveTo(b.pts[0].x, b.pts[0].y);
+        for (let j = 1; j < b.pts.length; j++) g.lineTo(b.pts[j].x, b.pts[j].y);
+        g.strokePath();
+      }
     }
   }
 
