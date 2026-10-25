@@ -37,6 +37,8 @@ export default function TowerDefenseGame() {
   const [selTower, setSelTower] = useState<TdTowerInfo | null>(null);
   const [autoStart, setAutoStart] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const [icons, setIcons] = useState<Record<string, string>>({});
+  const [denyNonce, setDenyNonce] = useState(0);
   const [result, setResult] = useState<{ wave: number; kills: number; score: number } | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const { count, loaded, registerPlay } = usePlayCounter(SLUG);
@@ -62,6 +64,8 @@ export default function TowerDefenseGame() {
             setRefreshKey((k) => k + 1);
           },
           getSelectedKind: () => kindRef.current,
+          onIcons: (map) => setIcons(map),
+          onDeny: () => setDenyNonce((n) => n + 1),
         },
         insetsRef.current,
       );
@@ -176,7 +180,20 @@ export default function TowerDefenseGame() {
             <strong>次：WAVE {nextWave} · {waveName(nextWave)}</strong>
             {(Object.keys(ENEMY_LABELS) as EKind[]).map((kind) => {
               const n = nextQueue.filter((k) => k === kind).length;
-              return n ? <span key={kind}>{ENEMY_LABELS[kind]} ×{n}</span> : null;
+              if (!n) return null;
+              const label = ENEMY_LABELS[kind];
+              const name = label.replace(/^\S+\s/, "");
+              return (
+                <span key={kind} className="nw-item">
+                  {icons[`enemy-${kind}`] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={icons[`enemy-${kind}`]} alt={name} className="nw-icon" width={26} height={26} />
+                  ) : (
+                    <span>{label.split(" ")[0]}</span>
+                  )}
+                  {name} ×{n}
+                </span>
+              );
             })}
             {nextWave % 5 === 0 && <small>王様はHP半分で一度だけ加速！</small>}
           </div>
@@ -184,18 +201,27 @@ export default function TowerDefenseGame() {
             {TOWER_KINDS.map((k) => {
               const d = TOWERS[k];
               const afford = hud.wheat >= d.cost;
+              const deny = denyNonce > 0 && selectedKind === k;
               return (
                 <button
-                  key={k}
+                  key={`${k}-${deny ? denyNonce : 0}`}
                   type="button"
-                  className={`td-card ${selectedKind === k ? "selected" : ""} ${afford ? "" : "cant"}`}
+                  className={`td-card ${selectedKind === k ? "selected" : ""} ${afford ? "" : "cant"} ${deny ? "deny" : ""}`}
                   onClick={() => {
                     setSelectedKind(k);
                     sfx.unlock();
                     sfx.play("click");
+                    if (!afford) setDenyNonce((n) => n + 1);
                   }}
                 >
-                  <span className="td-card-icon">{d.icon}</span>
+                  <span className="td-card-icon">
+                    {icons[`tower-${k}`] ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={icons[`tower-${k}`]} alt={d.name} className="td-card-img" width={52} height={52} />
+                    ) : (
+                      d.icon
+                    )}
+                  </span>
                   <span className="td-card-name">{d.name}</span>
                   <span className="td-card-desc">{d.desc}</span>
                   <span className="td-card-cost">🌾 {d.cost}</span>
@@ -213,7 +239,13 @@ export default function TowerDefenseGame() {
           {selTower && (
             <div className="td-selected fs-sel">
               <span className="td-selected-name">
-                {TOWERS[selTower.kind].icon} {TOWERS[selTower.kind].name} Lv{selTower.lv}
+                {icons[`tower-${selTower.kind}`] ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={icons[`tower-${selTower.kind}`]} alt="" className="td-sel-img" width={30} height={30} />
+                ) : (
+                  TOWERS[selTower.kind].icon
+                )}{" "}
+                {TOWERS[selTower.kind].name} Lv{selTower.lv}
               </span>
               <span className="td-selected-stats">
                 攻撃 {Math.round(selTower.dmg)} ／ 射程 {selTower.range.toFixed(1)} ／ 連射 {selTower.rate.toFixed(1)}/s
