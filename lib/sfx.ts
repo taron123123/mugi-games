@@ -7,6 +7,9 @@
  */
 
 export type SfxName =
+  | "graze1" | "graze2" | "graze3" | "graze4"
+  | "critical"
+  | "warning"
   | "shoot"
   | "hit"
   | "boom"
@@ -26,6 +29,8 @@ const MUTE_KEY = "mugi-games:muted";
 
 /** 同じ音を連打しすぎないための最小間隔 (ms) */
 const THROTTLE: Partial<Record<SfxName, number>> = {
+  critical: 90,
+  warning: 1500,
   shoot: 50,
   hit: 40,
   pickup: 45,
@@ -130,6 +135,19 @@ class Sfx {
     this.lastPlayed.set(name, now);
     if (!this.ctx) return; // unlock 前は無音（エラーにしない）
     switch (name) {
+      case "graze1": case "graze2": case "graze3": case "graze4": {
+        const pitch = 850 + (Number(name.slice(-1)) - 1) * 260;
+        this.tone(pitch, 0.065, "sine", 0.065, pitch * 1.5);
+        break;
+      }
+      case "critical":
+        this.tone(1450, 0.09, "triangle", 0.1, 2300);
+        this.tone(2100, 0.06, "sine", 0.07, undefined, 0.035);
+        break;
+      case "warning":
+        this.tone(180, 0.16, "sine", 0.16, 110);
+        this.tone(180, 0.16, "sine", 0.12, 110, 0.23);
+        break;
       case "shoot":
         this.tone(720 + Math.random() * 120, 0.07, "square", 0.05, 240);
         break;

@@ -20,6 +20,13 @@ const HUD_H = 46;
 const W = COLS * CELL;
 const H = HUD_H + ROWS * CELL;
 const BASE_HP = 20;
+// 経済・難易度・相性はここで調整する。20以降は指数増加を止める。
+const BALANCE = {
+  initialWheat: 180, hpGrowth: 1.105, endlessGrowth: 0.055,
+  bonusBase: 28, bonusPerWave: 3, rewardGrowth: 0.045,
+  wetDuration: 3, wetLightning: 1.65, frozenCannon: 1.4,
+  slowDuration: 1.6, bossRageSpeed: 1.65, maxParticles: 360,
+};
 
 // 経路（セル座標）。入口は左端 row1、出口は下端 col9。
 const PATH_SEGMENTS: Array<[number, number, number, number]> = [
@@ -88,10 +95,10 @@ type TowerDef = {
   color: string; desc: string; slow?: number; chain?: number;
 };
 const TOWERS: Record<TowerKind, TowerDef> = {
-  scarecrow: { name: "かかし砲台", icon: "🧑‍🌾", cost: 50, range: 2.7, dmg: 14, rate: 1.4, color: "#e0a458", desc: "標準バランスの単体攻撃" },
-  sprinkler: { name: "連射スプリンクラー", icon: "💦", cost: 40, range: 2.1, dmg: 4, rate: 5, color: "#4db8e8", desc: "射程は短いが超連射" },
-  fan: { name: "氷結ファン", icon: "❄️", cost: 60, range: 2.3, dmg: 2, rate: 2, color: "#7cc7e8", desc: "当てた敵を遅くする", slow: 0.45 },
-  thunder: { name: "雷タワー", icon: "⚡", cost: 120, range: 3.0, dmg: 24, rate: 0.55, color: "#b388ff", desc: "最大3体へ連鎖する雷", chain: 3 },
+  scarecrow: { name: "かかし砲台", icon: "🧑‍🌾", cost: 50, range: 2.7, dmg: 14, rate: 1.4, color: "#e0a458", desc: "単体砲撃。鈍化中の敵へ威力1.4倍" },
+  sprinkler: { name: "連射スプリンクラー", icon: "💦", cost: 40, range: 2.1, dmg: 4, rate: 5, color: "#4db8e8", desc: "連射で3秒間「濡れ」付与。雷と好相性" },
+  fan: { name: "氷結ファン", icon: "❄️", cost: 60, range: 2.3, dmg: 2, rate: 2, color: "#7cc7e8", desc: "1.6秒鈍化。かかし砲台の威力を増幅", slow: 0.45 },
+  thunder: { name: "雷タワー", icon: "⚡", cost: 120, range: 3.0, dmg: 24, rate: 0.55, color: "#b388ff", desc: "3体連鎖。濡れた敵へ威力1.65倍", chain: 3 },
 };
 const TOWER_KINDS = Object.keys(TOWERS) as TowerKind[];
 
@@ -113,15 +120,16 @@ type EKind = "normal" | "fast" | "tank" | "swarm" | "boss";
 type Enemy = {
   id: number; kind: EKind; dist: number; hp: number; maxHp: number;
   spd: number; bounty: number; leak: number; r: number; emoji: string;
-  slowUntil: number; slowFactor: number; deadFlag?: boolean;
+  wetUntil: number; enraged: boolean; slowUntil: number; slowFactor: number; deadFlag?: boolean;
 };
 type Proj = { x: number; y: number; targetId: number; dmg: number; kind: TowerKind; slow?: number };
 type Bolt = { pts: Array<[number, number]>; ttl: number };
-type Particle = { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; color: string };
+type Particle = { x: number; y: number; vx: number; vy: number; life: number; maxLife: number; color: string; kind?: TowerKind };
 
 type Phase = "build" | "playing" | "paused" | "over";
 
 type S = {
+  waveTotal: number; hitUntil: number; floats: Array<{ x: number; y: number; value: number; life: number }>;
   gtime: number;
   wheat: number;
   baseHp: number;
@@ -148,7 +156,8 @@ type S = {
 
 function freshState(): S {
   return {
-    gtime: 0, wheat: 150, baseHp: BASE_HP, wave: 0,
+    waveTotal: 0, hitUntil: 0, floats: [],
+    gtime: 0, wheat: BALANCE.initialWheat, baseHp: BASE_HP, wave: 0,
     kills: 0, totalEarned: 0,
     towers: [], enemies: [], projs: [], bolts: [], particles: [],
     queue: [], spawnCd: 0, waveActive: false, autoTimer: 0,
@@ -157,21 +166,30 @@ function freshState(): S {
   };
 }
 
+const ENEMY_LABELS: Record<EKind, string> = {
+  normal: "🐦 カラス", fast: "🦇 コウモリ", tank: "🪲 甲虫", swarm: "🐜 アリ", boss: "👑 王様",
+};
+function waveName(wave: number) {
+  if (wave % 5 === 0) return "王様の襲来";
+  return ["カラスの偵察", "俊足ラッシュ", "アリの大行進", "甲虫の盾"][((wave - 1) % 5) % 4];
+}
 function waveQueue(wave: number): EKind[] {
   const q: EKind[] = [];
-  const n = Math.min(42, 7 + wave * 2);
-  const swarmWave = wave % 3 === 0;
-  for (let i = 0; i < n; i++) {
-    const roll = Math.random();
-    if (swarmWave && roll < 0.55) q.push("swarm");
-    else if (wave >= 4 && roll < 0.12) q.push("tank");
-    else if (wave >= 3 && roll < 0.35) q.push("fast");
-    else q.push("normal");
+  const tier = Math.min(8, Math.floor((wave - 1) / 5));
+  const add = (kind: EKind, count: number) => { for (let i = 0; i < count; i++) q.push(kind); };
+  const extra = Math.min(16, tier * 2);
+  switch (wave % 5) {
+    case 1: add("normal", 8 + extra); if (tier) { add("fast", 4 + tier); add("tank", 2); } break;
+    case 2: add("normal", 3); add("fast", 9 + extra); break;
+    case 3: add("swarm", 22 + extra); add("normal", 3 + tier); break;
+    case 4: for (let i = 0; i < 4 + Math.min(tier, 6); i++) { add("tank", 1); add("normal", 2); } break;
+    default: add("normal", 4 + extra); add("boss", 1); add("fast", 5 + Math.min(tier, 8)); add("swarm", 8 + extra);
   }
-  // タンクは少し間隔を空けるため後ろに寄せる
-  q.sort((a, b) => (a === "tank" ? 1 : 0) - (b === "tank" ? 1 : 0));
-  if (wave % 5 === 0) q.push("boss");
   return q;
+}
+function waveHpMultiplier(wave: number) {
+  return Math.pow(BALANCE.hpGrowth, Math.min(wave - 1, 19)) *
+    (1 + Math.max(0, wave - 20) * BALANCE.endlessGrowth);
 }
 
 function enemyBase(kind: EKind) {
@@ -180,8 +198,71 @@ function enemyBase(kind: EKind) {
     fast: { hp: 13, spd: 58, bounty: 7, leak: 1, r: 13, emoji: "🦇" },
     tank: { hp: 95, spd: 19, bounty: 14, leak: 2, r: 22, emoji: "🌩️" },
     swarm: { hp: 8, spd: 44, bounty: 3, leak: 1, r: 10, emoji: "🐜" },
-    boss: { hp: 950, spd: 15, bounty: 150, leak: 5, r: 30, emoji: "👹" },
+    boss: { hp: 460, spd: 15, bounty: 150, leak: 5, r: 30, emoji: "👹" },
   }[kind];
+}
+
+// 小さなパスだけで描画。画像・シャドウ・毎フレームの地形生成は使わない。
+function drawTower(ctx: CanvasRenderingContext2D, t: Pick<Tower, "kind" | "lv">, x: number, y: number, time: number) {
+  const lv = t.lv;
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = "#536b48"; ctx.beginPath(); ctx.ellipse(0, 18, 23, 8, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#d8c394"; ctx.fillRect(-17, 10, 34, 8);
+  ctx.lineWidth = 3; ctx.lineCap = "round";
+  if (t.kind === "scarecrow") {
+    ctx.strokeStyle = "#80552f"; ctx.beginPath(); ctx.moveTo(0, 14); ctx.lineTo(0, -15); ctx.moveTo(-19, -2); ctx.lineTo(19, -2 - lv * 2); ctx.stroke();
+    ctx.fillStyle = lv === 3 ? "#bb4141" : "#477f82"; ctx.fillRect(-10, -6, 20, 17);
+    ctx.fillStyle = "#f0cf87"; ctx.beginPath(); ctx.arc(0, -15, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#a56832"; ctx.fillRect(-14, -24, 28, 4); ctx.fillRect(-8, -30 - lv, 16, 9);
+    ctx.fillStyle = "#273c45"; ctx.fillRect(4, -2, 18 + lv * 2, 9); ctx.fillStyle = "#111f28"; ctx.fillRect(18 + lv * 2, -1, 4, 7);
+    ctx.fillStyle = "#24313b"; ctx.fillRect(-4, -17, 2, 2); ctx.fillRect(3, -17, 2, 2);
+  } else if (t.kind === "sprinkler") {
+    ctx.fillStyle = "#24768f"; ctx.fillRect(-6, -15, 12, 30);
+    ctx.save(); ctx.rotate(time * 2); ctx.strokeStyle = "#e5f8ff"; ctx.beginPath(); ctx.moveTo(-16, 0); ctx.lineTo(16, 0); ctx.stroke();
+    for (let i = 0; i < lv + 1; i++) { ctx.rotate(Math.PI * 2 / (lv + 1)); ctx.strokeStyle = "#54c9f4"; ctx.beginPath(); ctx.arc(0, 0, 17 + lv * 2, 0, 0.85); ctx.stroke(); }
+    ctx.restore(); ctx.fillStyle = "#b6f0ff"; ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill();
+  } else if (t.kind === "fan") {
+    ctx.fillStyle = "#3d8198"; ctx.fillRect(-5, -3, 10, 20);
+    ctx.strokeStyle = "rgba(154,238,255,0.5)"; ctx.beginPath(); ctx.arc(0, -6, 23 + lv, 0, Math.PI * 2); ctx.stroke();
+    ctx.save(); ctx.translate(0, -6); ctx.rotate(time * 4);
+    for (let i = 0; i < lv + 2; i++) { ctx.rotate(Math.PI * 2 / (lv + 2)); ctx.fillStyle = "#c0f1ff"; ctx.beginPath(); ctx.ellipse(9, 0, 12, 5, 0.4, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore(); ctx.fillStyle = "#3c6f9c"; ctx.beginPath(); ctx.arc(0, -6, 5, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.fillStyle = "#655391"; ctx.fillRect(-10, -19 - lv * 3, 20, 35 + lv * 3);
+    ctx.strokeStyle = "#d5bbff";
+    for (let i = 0; i < 3 + lv; i++) { ctx.beginPath(); ctx.ellipse(0, 7 - i * 6, 14, 4, 0, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.fillStyle = "#fff3a7"; ctx.beginPath(); ctx.arc(0, -22 - lv * 3, 5, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "#f2deff"; ctx.beginPath(); ctx.moveTo(-17, -18); ctx.lineTo(-22, -27 + Math.sin(time * 9) * 4); ctx.lineTo(-13, -30); ctx.moveTo(10, -24); ctx.lineTo(22, -16); ctx.lineTo(18, -7); ctx.stroke();
+  }
+  ctx.fillStyle = "#ffe298";
+  for (let i = 0; i < lv; i++) ctx.fillRect(-7 + i * 6, 20, 4, 3);
+  ctx.restore();
+}
+
+function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, time: number) {
+  const [x, y] = posAt(e.dist), [nx, ny] = posAt(e.dist + 2);
+  const slow = time < e.slowUntil, wet = time < e.wetUntil;
+  ctx.save(); ctx.translate(x, y);
+  ctx.fillStyle = "rgba(44,37,24,0.22)"; ctx.beginPath(); ctx.ellipse(0, e.r * 0.7, e.r, 5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.rotate(Math.atan2(ny - y, nx - x) + Math.sin(time * 9 + e.id) * 0.08);
+  const r = e.r;
+  ctx.fillStyle = slow ? "#94dbef" : e.enraged ? "#db513d" : ({ normal: "#35445f", fast: "#85558e", tank: "#55744a", swarm: "#aa5138", boss: "#793b68" }[e.kind]);
+  ctx.strokeStyle = slow ? "#d8faff" : "#3a302c"; ctx.lineWidth = 2;
+  if (e.kind === "fast" || e.kind === "normal") {
+    const flap = Math.sin(time * 13 + e.id) * 5;
+    ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(-r, -r - flap); ctx.lineTo(-r * 0.5, 0); ctx.lineTo(-r, r + flap); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  if (e.kind === "swarm" || e.kind === "tank") {
+    for (let i = -1; i <= 1; i++) { const leg = Math.sin(time * 12 + i) * 3; ctx.beginPath(); ctx.moveTo(i * 6, -4); ctx.lineTo(i * 7 + leg, -r - 3); ctx.moveTo(i * 6, 4); ctx.lineTo(i * 7 - leg, r + 3); ctx.stroke(); }
+  }
+  ctx.beginPath(); ctx.ellipse(-2, 0, r, r * 0.72, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  if (e.kind === "tank") { ctx.strokeStyle = "#d2be70"; ctx.beginPath(); ctx.moveTo(-r, 0); ctx.lineTo(r - 4, 0); ctx.stroke(); }
+  ctx.fillStyle = "#fff7d8"; ctx.beginPath(); ctx.arc(r * 0.48, -4, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#232b35"; ctx.beginPath(); ctx.arc(r * 0.56, -4, 2, 0, Math.PI * 2); ctx.fill();
+  if (e.kind === "boss") { ctx.fillStyle = "#ffd557"; ctx.beginPath(); ctx.moveTo(-14, -19); ctx.lineTo(-18, -32); ctx.lineTo(-6, -25); ctx.lineTo(0, -37); ctx.lineTo(7, -25); ctx.lineTo(17, -32); ctx.lineTo(13, -19); ctx.closePath(); ctx.fill(); }
+  ctx.restore();
+  if (wet) { ctx.fillStyle = "#219ee6"; ctx.beginPath(); ctx.moveTo(x + r, y - r - 6); ctx.quadraticCurveTo(x + r - 9, y - r + 7, x + r, y - r + 7); ctx.quadraticCurveTo(x + r + 9, y - r + 7, x + r, y - r - 6); ctx.fill(); }
+  if (slow) { ctx.strokeStyle = "#e6fbff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 3, 0, Math.PI * 2); ctx.stroke(); }
 }
 
 export default function TowerDefenseGame() {
@@ -190,7 +271,7 @@ export default function TowerDefenseGame() {
   const phaseRef = useRef<Phase>("build");
   const startedRef = useRef(false);
   const [phase, setPhase] = useState<Phase>("build");
-  const [hud, setHud] = useState({ wheat: 150, baseHp: BASE_HP, wave: 0, waveActive: false });
+  const [hud, setHud] = useState({ wheat: BALANCE.initialWheat, baseHp: BASE_HP, wave: 0, waveActive: false });
   const [selectedKind, setSelectedKind] = useState<TowerKind>("scarecrow");
   const [selectedTower, setSelectedTower] = useState<number | null>(null);
   const [autoStart, setAutoStart] = useState(false);
@@ -213,23 +294,25 @@ export default function TowerDefenseGame() {
     setHud({ wheat: Math.floor(s.wheat), baseHp: s.baseHp, wave: s.wave, waveActive: s.waveActive });
   }, []);
 
-  const burst = useCallback((s: S, x: number, y: number, color: string, n: number) => {
-    for (let i = 0; i < n; i++) {
+  const burst = useCallback((s: S, x: number, y: number, color: string, n: number, kind?: TowerKind) => {
+    for (let i = 0; i < n && s.particles.length < BALANCE.maxParticles; i++) {
       const a = Math.random() * Math.PI * 2;
       const v = 26 + Math.random() * 90;
       s.particles.push({
         x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
-        life: 0, maxLife: 0.3 + Math.random() * 0.25, color,
+        life: 0, maxLife: 0.3 + Math.random() * 0.25, color, kind,
       });
     }
   }, []);
 
   const startWave = useCallback((s: S) => {
+    if (s.waveActive || phaseRef.current !== "playing") return;
     s.wave += 1;
     s.queue = waveQueue(s.wave);
+    s.waveTotal = s.queue.length;
     s.waveActive = true;
     s.spawnCd = 0.3;
-    s.banner = s.wave % 5 === 0 ? `WAVE ${s.wave} 👹ボス接近！` : `WAVE ${s.wave}`;
+    s.banner = s.wave % 5 === 0 ? `WAVE ${s.wave} 👹ボス接近！` : `WAVE ${s.wave} ${waveName(s.wave)}`;
     s.bannerUntil = s.gtime + 1.6;
     sfx.play("clear");
     syncHud();
@@ -244,16 +327,23 @@ export default function TowerDefenseGame() {
     setPhaseBoth("over");
   }, [setPhaseBoth]);
 
-  const damageEnemy = useCallback((s: S, e: Enemy, dmg: number) => {
+  const damageEnemy = useCallback((s: S, e: Enemy, dmg: number, kind: TowerKind) => {
     if (e.deadFlag) return;
     e.hp -= dmg;
+    if (e.kind === "boss" && !e.enraged && e.hp > 0 && e.hp <= e.maxHp * 0.5) {
+      e.enraged = true;
+      s.banner = "王様が激怒！ 移動速度アップ";
+      s.bannerUntil = s.gtime + 1.7;
+      burst(s, ...posAt(e.dist), "#ff654a", 24);
+    }
     if (e.hp <= 0) {
       e.deadFlag = true;
       s.kills += 1;
       s.wheat += e.bounty;
       s.totalEarned += e.bounty;
       const [x, y] = posAt(e.dist);
-      burst(s, x, y, e.kind === "boss" ? "#b388ff" : "#8a6d3b", e.kind === "boss" ? 30 : 7);
+      burst(s, x, y, TOWERS[kind].color, e.kind === "boss" ? 32 : 12, kind);
+      s.floats.push({ x, y, value: e.bounty, life: 0 });
       sfx.play(e.kind === "boss" ? "boom" : "coin");
       syncHud();
     }
@@ -268,15 +358,15 @@ export default function TowerDefenseGame() {
       if (s.spawnCd <= 0) {
         const kind = s.queue.shift()!;
         const base = enemyBase(kind);
-        const hpMul = Math.pow(1.19, s.wave - 1) * (kind === "boss" ? 1 + (s.wave / 5 - 1) * 0.6 : 1);
+        const hpMul = waveHpMultiplier(s.wave);
         s.enemies.push({
           id: s.nextId++, kind, dist: 0,
           hp: base.hp * hpMul, maxHp: base.hp * hpMul,
-          spd: base.spd, bounty: Math.round(base.bounty * (1 + s.wave * 0.03)),
+          spd: base.spd, bounty: Math.round(base.bounty * (1 + s.wave * BALANCE.rewardGrowth)),
           leak: base.leak, r: base.r, emoji: base.emoji,
-          slowUntil: 0, slowFactor: 1,
+          wetUntil: 0, enraged: false, slowUntil: 0, slowFactor: 1,
         });
-        s.spawnCd = kind === "swarm" ? 0.22 : 0.75;
+        s.spawnCd = kind === "swarm" ? 0.19 : kind === "fast" ? 0.38 : kind === "tank" ? 1.05 : 0.8;
         syncHud();
       }
     }
@@ -285,10 +375,11 @@ export default function TowerDefenseGame() {
     for (const e of s.enemies) {
       if (e.deadFlag) continue;
       const slowed = s.gtime < e.slowUntil;
-      e.dist += e.spd * (slowed ? e.slowFactor : 1) * dt;
+      e.dist += e.spd * (e.enraged ? BALANCE.bossRageSpeed : 1) * (slowed ? e.slowFactor : 1) * dt;
       if (e.dist >= PATH_TOTAL) {
         e.deadFlag = true;
-        s.baseHp -= e.leak;
+        s.baseHp = Math.max(0, s.baseHp - e.leak);
+        s.hitUntil = s.gtime + 0.45;
         sfx.play("hurt");
         syncHud();
         if (s.baseHp <= 0) {
@@ -303,7 +394,7 @@ export default function TowerDefenseGame() {
     // ウェーブ終了判定
     if (s.waveActive && s.queue.length === 0 && s.enemies.length === 0) {
       s.waveActive = false;
-      const bonus = 20 + s.wave * 2;
+      const bonus = BALANCE.bonusBase + s.wave * BALANCE.bonusPerWave;
       s.wheat += bonus;
       s.totalEarned += bonus;
       s.banner = `WAVE ${s.wave} クリア！ ボーナス +${bonus}🌾`;
@@ -362,7 +453,7 @@ export default function TowerDefenseGame() {
           pts.push([mx, my], [ex, ey]);
         }
         s.bolts.push({ pts, ttl: 0.13 });
-        for (const e of chainTargets) damageEnemy(s, e, st.dmg);
+        for (const e of chainTargets) damageEnemy(s, e, st.dmg * (e.wetUntil > s.gtime ? BALANCE.wetLightning : 1), "thunder");
         sfx.play("thunder");
       } else {
         s.projs.push({
@@ -381,13 +472,14 @@ export default function TowerDefenseGame() {
       const d = Math.hypot(ex - p.x, ey - p.y);
       const step = 420 * dt;
       if (d <= step + e.r * 0.4) {
-        damageEnemy(s, e, p.dmg);
+        if (p.kind === "sprinkler") e.wetUntil = s.gtime + BALANCE.wetDuration;
+        damageEnemy(s, e, p.dmg * (p.kind === "scarecrow" && e.slowUntil > s.gtime ? BALANCE.frozenCannon : 1), p.kind);
         if (p.slow && !e.deadFlag) {
           e.slowFactor = 1 - p.slow;
-          e.slowUntil = s.gtime + 1.4;
+          e.slowUntil = s.gtime + BALANCE.slowDuration;
           sfx.play("freeze");
         }
-        burst(s, ex, ey, p.kind === "fan" ? "#bdeaff" : "#ffe9a8", 3);
+        burst(s, ex, ey, TOWERS[p.kind].color, 3, p.kind);
         p.targetId = -1;
       } else {
         p.x += ((ex - p.x) / d) * step;
@@ -397,6 +489,8 @@ export default function TowerDefenseGame() {
     s.projs = s.projs.filter((p) => p.targetId !== -1);
 
     // エフェクト
+    for (const f of s.floats) { f.life += dt; f.y -= 23 * dt; }
+    s.floats = s.floats.filter((f) => f.life < 0.85).slice(-40);
     for (const b of s.bolts) b.ttl -= dt;
     s.bolts = s.bolts.filter((b) => b.ttl > 0);
     for (const p of s.particles) {
@@ -418,6 +512,8 @@ export default function TowerDefenseGame() {
     if (canvas.width !== W * dpr) { canvas.width = W * dpr; canvas.height = H * dpr; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+    ctx.save();
+    if (s.gtime < s.hitUntil) ctx.translate(Math.sin(s.gtime * 85) * 4, Math.cos(s.gtime * 73) * 3);
     // HUD帯
     ctx.fillStyle = "#23405a";
     ctx.fillRect(0, 0, W, HUD_H);
@@ -428,19 +524,30 @@ export default function TowerDefenseGame() {
     ctx.fillText(`🏡 畑HP ${s.baseHp}`, 130, HUD_H / 2);
     ctx.fillText(`🌊 WAVE ${Math.max(1, s.wave)}`, 300, HUD_H / 2);
     const remain = s.enemies.length + s.queue.length;
-    ctx.fillText(s.waveActive ? `敵のこり ${remain}` : "待機中", 470, HUD_H / 2);
+    ctx.fillText(s.waveActive ? `敵のこり ${remain}` : "次の編成を確認 ↓", 470, HUD_H / 2);
     if (s.wave >= 20) {
       ctx.fillStyle = "#ffd94d";
       ctx.textAlign = "right";
-      ctx.fillText("エンドレス中♾️", W - 12, HUD_H / 2);
+      ctx.font = "bold 10px sans-serif";
+      ctx.fillText("ENDLESS", W - 8, 8);
       ctx.textAlign = "left";
     }
 
+    ctx.fillStyle = "#132f3b"; ctx.fillRect(0, HUD_H - 4, W, 4);
+    ctx.fillStyle = "#f4d77b";
+    ctx.fillRect(0, HUD_H - 4, W * (s.waveTotal ? 1 - remain / s.waveTotal : 0), 4);
     // 草原
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         ctx.fillStyle = (c + r) % 2 === 0 ? "#a9d977" : "#9ed168";
         ctx.fillRect(c * CELL, HUD_H + r * CELL, CELL, CELL);
+        if (!PATH_CELLS.has(`${c},${r}`)) {
+          const [gx, gy] = cellCenter(c, r);
+          ctx.strokeStyle = "#8fa74d"; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(gx - 16, gy + 17); ctx.lineTo(gx - 16, gy + 4); ctx.stroke();
+          ctx.fillStyle = "#e2c263";
+          for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.ellipse(gx - 18 + (i % 2) * 4, gy + 5 + i * 3, 3, 2, -0.7, 0, Math.PI * 2); ctx.fill(); }
+        }
       }
     }
     // 経路
@@ -458,15 +565,13 @@ export default function TowerDefenseGame() {
     WAYPOINTS.forEach(([x, y], i) => (i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
     ctx.stroke();
     ctx.setLineDash([]);
-    // 入口と畑
-    ctx.font = "24px serif";
-    ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText("🚪", 16, HUD_H + 1 * CELL + CELL / 2);
-    ctx.font = "30px serif";
-    ctx.fillText("🌾", 9 * CELL + CELL / 2, H - 14);
-    ctx.font = "bold 11px sans-serif";
-    ctx.fillStyle = "#5b4a1e";
-    ctx.fillText("畑", 9 * CELL + CELL / 2 + 24, H - 14);
+    // 農家小屋（出口の目印）
+    const hx = 9 * CELL + CELL / 2;
+    ctx.fillStyle = "#efdbab"; ctx.fillRect(hx - 21, H - 31, 42, 31);
+    ctx.fillStyle = "#ac553d"; ctx.beginPath(); ctx.moveTo(hx - 29, H - 30); ctx.lineTo(hx, H - 52); ctx.lineTo(hx + 29, H - 30); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "#5b4230"; ctx.fillRect(hx - 6, H - 21, 12, 21);
+    ctx.fillStyle = "#a3dbeb"; ctx.fillRect(hx + 10, H - 23, 8, 9);
+    ctx.font = "bold 11px sans-serif"; ctx.fillStyle = "#4b4227"; ctx.textAlign = "left"; ctx.fillText("入口 →", 5, HUD_H + CELL - 5);
 
     // 配置ゴースト
     const sel = selectedTowerRef.current;
@@ -482,8 +587,7 @@ export default function TowerDefenseGame() {
         ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(cx, cy, def.range * CELL, 0, Math.PI * 2); ctx.stroke();
         ctx.globalAlpha = 0.65;
-        ctx.font = "30px serif";
-        ctx.fillText(def.icon, cx, cy);
+        drawTower(ctx, { kind: selectedKindRef.current, lv: 1 }, cx, cy, s.gtime);
         ctx.globalAlpha = 1;
         void sel;
       }
@@ -510,31 +614,13 @@ export default function TowerDefenseGame() {
     // タワー
     for (const t of s.towers) {
       const [cx, cy] = cellCenter(t.c, t.r);
-      const def = TOWERS[t.kind];
-      ctx.fillStyle = def.color;
-      ctx.beginPath(); ctx.roundRect(cx - 22, cy - 22, 44, 44, 10); ctx.fill();
-      ctx.strokeStyle = "rgba(35,64,90,0.5)";
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.roundRect(cx - 22, cy - 22, 44, 44, 10); ctx.stroke();
-      ctx.font = "26px serif";
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(def.icon, cx, cy - 3);
-      ctx.font = "10px sans-serif";
-      ctx.fillStyle = "#ffd94d";
-      ctx.fillText("★".repeat(t.lv), cx, cy + 17);
+      drawTower(ctx, t, cx, cy, s.gtime);
     }
 
     // 敵
     for (const e of s.enemies) {
       const [x, y] = posAt(e.dist);
-      const slowed = s.gtime < e.slowUntil;
-      if (slowed) {
-        ctx.fillStyle = "rgba(140,220,255,0.45)";
-        ctx.beginPath(); ctx.arc(x, y, e.r + 4, 0, Math.PI * 2); ctx.fill();
-      }
-      ctx.font = `${e.r * 2}px serif`;
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(e.emoji, x, y);
+      drawEnemy(ctx, e, s.gtime);
       if (e.hp < e.maxHp) {
         const bw = Math.max(30, e.r * 2);
         ctx.fillStyle = "rgba(0,0,0,0.5)";
@@ -562,9 +648,23 @@ export default function TowerDefenseGame() {
     for (const p of s.particles) {
       ctx.globalAlpha = 1 - p.life / p.maxLife;
       ctx.fillStyle = p.color;
-      ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill();
+      if (p.kind === "scarecrow") { ctx.fillRect(p.x - 3, p.y - 3, 6, 6); }
+      else if (p.kind === "fan" || p.kind === "thunder") {
+        ctx.strokeStyle = p.color; ctx.lineWidth = 2; ctx.beginPath();
+        ctx.moveTo(p.x - 4, p.y - 4); ctx.lineTo(p.x + 4, p.y + 4);
+        ctx.moveTo(p.x + 4, p.y - 4); ctx.lineTo(p.x - 4, p.y + 4); ctx.stroke();
+      } else { ctx.beginPath(); ctx.ellipse(p.x, p.y, 2, 4, 0.4, 0, Math.PI * 2); ctx.fill(); }
     }
     ctx.globalAlpha = 1;
+    for (const f of s.floats) {
+      ctx.globalAlpha = 1 - f.life / 0.85; ctx.fillStyle = "#fff4a8";
+      ctx.font = "bold 14px sans-serif"; ctx.textAlign = "center";
+      ctx.strokeStyle = "#594325"; ctx.lineWidth = 3;
+      ctx.strokeText(`+${f.value}🌾`, f.x, f.y - 20); ctx.fillText(`+${f.value}🌾`, f.x, f.y - 20);
+    }
+    ctx.globalAlpha = 1;
+    if (s.gtime < s.hitUntil) { ctx.fillStyle = `rgba(230,40,35,${(s.hitUntil - s.gtime) * 0.5})`; ctx.fillRect(0, HUD_H, W, H - HUD_H); }
+    ctx.restore();
     // バナー
     if (s.gtime < s.bannerUntil && s.banner) {
       ctx.font = "bold 30px sans-serif";
@@ -669,6 +769,7 @@ export default function TowerDefenseGame() {
 
   /** 配置フェーズから、置いたタワーを保持したまま開始する */
   const beginFromBuild = useCallback(() => {
+    if (startedRef.current) return;
     sfx.unlock();
     sfx.play("click");
     startedRef.current = true;
@@ -752,6 +853,14 @@ export default function TowerDefenseGame() {
         })}
       </div>
 
+      <div className="td-selected" aria-label="次のウェーブ予告" style={{ margin: "8px 0", flexWrap: "wrap" }}>
+        <strong>次：WAVE {hud.wave + 1} · {waveName(hud.wave + 1)}</strong>
+        {(Object.keys(ENEMY_LABELS) as EKind[]).map((kind) => {
+          const count = waveQueue(hud.wave + 1).filter((k) => k === kind).length;
+          return count ? <span key={kind}>{ENEMY_LABELS[kind]} ×{count}</span> : null;
+        })}
+        {(hud.wave + 1) % 5 === 0 && <small>王様はHP半分で一度だけ加速！</small>}
+      </div>
       <div className="canvas-wrap td">
         <canvas
           ref={canvasRef}
@@ -760,6 +869,7 @@ export default function TowerDefenseGame() {
           className="game-canvas"
           onPointerMove={onPointerMove}
           onPointerDown={onPointerDown}
+          onPointerLeave={() => { sRef.current.hover = null; }}
         />
         {phase === "build" && (
           <div className="canvas-overlay build">
@@ -816,6 +926,12 @@ export default function TowerDefenseGame() {
               射程 {towerStats(selectedTowerObj.kind, selectedTowerObj.lv).range.toFixed(1)} ／
               連射 {towerStats(selectedTowerObj.kind, selectedTowerObj.lv).rate.toFixed(1)}/s
             </span>
+            <span>{TOWERS[selectedTowerObj.kind].desc}</span>
+            {selectedTowerObj.lv < 3 && <span className="td-selected-stats">
+              強化後：攻撃 {towerStats(selectedTowerObj.kind, selectedTowerObj.lv).dmg.toFixed(1)} → {towerStats(selectedTowerObj.kind, selectedTowerObj.lv + 1).dmg.toFixed(1)} ／
+              射程 {towerStats(selectedTowerObj.kind, selectedTowerObj.lv).range.toFixed(1)} → {towerStats(selectedTowerObj.kind, selectedTowerObj.lv + 1).range.toFixed(1)} ／
+              連射 {towerStats(selectedTowerObj.kind, selectedTowerObj.lv).rate.toFixed(1)} → {towerStats(selectedTowerObj.kind, selectedTowerObj.lv + 1).rate.toFixed(1)}/s
+            </span>}
             {upgradeCost(selectedTowerObj.kind, selectedTowerObj.lv) !== null ? (
               <button
                 type="button"
