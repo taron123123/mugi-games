@@ -18,6 +18,8 @@ import {
 } from "@/lib/phaser/tdData";
 import PlayCountBadge from "./PlayCountBadge";
 import RecordsPanel from "./RecordsPanel";
+import RankingPanel from "./RankingPanel";
+import RankingSubmit from "./RankingSubmit";
 import ShareButton, { FollowLink } from "./ShareButton";
 import MuteButton from "./MuteButton";
 import FullscreenButton from "./FullscreenButton";
@@ -44,6 +46,7 @@ export default function TowerDefenseGame() {
   const [denyNonce, setDenyNonce] = useState(0);
   const [result, setResult] = useState<{ wave: number; kills: number; score: number } | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [rankKey, setRankKey] = useState(0);
   const { count, loaded, registerPlay } = usePlayCounter(SLUG);
   const registerPlayRef = useRef(registerPlay);
   registerPlayRef.current = registerPlay;
@@ -340,6 +343,13 @@ export default function TowerDefenseGame() {
                 <button type="button" className="big-btn" onClick={startGame}>🔄 もう一度</button>
                 <ShareButton text={shareText} />
               </div>
+              <RankingSubmit
+                game="tower-defense"
+                score={result.score}
+                meta={`WAVE ${result.wave} / 撃破${result.kills}`}
+                active={phase === "over"}
+                onSubmitted={() => setRankKey((k) => k + 1)}
+              />
               <FollowLink />
             </div>
           </div>
@@ -356,6 +366,7 @@ export default function TowerDefenseGame() {
           formatValue={(v) => `${v.toLocaleString()}点`}
           bestMode="max"
         />
+        <RankingPanel game="tower-defense" refreshKey={rankKey} />
       </div>
     </>
   );

@@ -9,6 +9,8 @@ import { sfx } from "@/lib/sfx";
 import type { SkyApi, SkyHud, SkyPhase, SkyResult } from "@/lib/phaser/skyShooter";
 import PlayCountBadge from "./PlayCountBadge";
 import RecordsPanel from "./RecordsPanel";
+import RankingPanel from "./RankingPanel";
+import RankingSubmit from "./RankingSubmit";
 import ShareButton, { FollowLink } from "./ShareButton";
 import MuteButton from "./MuteButton";
 import FullscreenButton from "./FullscreenButton";
@@ -25,6 +27,7 @@ export default function SkyShooterGame() {
   const [hud, setHud] = useState<SkyHud | null>(null);
   const [result, setResult] = useState<SkyResult | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [rankKey, setRankKey] = useState(0);
   const { count, loaded, registerPlay } = usePlayCounter(SLUG);
   const registerPlayRef = useRef(registerPlay);
   registerPlayRef.current = registerPlay;
@@ -181,6 +184,13 @@ export default function SkyShooterGame() {
                 <button type="button" className="big-btn" onClick={start}>🔄 もう一度</button>
                 <ShareButton text={shareText} />
               </div>
+              <RankingSubmit
+                game="sky-shooter"
+                score={result.score}
+                meta={`STAGE ${result.stage} / かすり${result.graze}`}
+                active={phase === "over"}
+                onSubmitted={() => setRankKey((k) => k + 1)}
+              />
               <FollowLink />
             </div>
           </div>
@@ -197,6 +207,7 @@ export default function SkyShooterGame() {
           formatValue={(v) => `${v.toLocaleString()}点`}
           bestMode="max"
         />
+        <RankingPanel game="sky-shooter" refreshKey={rankKey} />
       </div>
     </>
   );

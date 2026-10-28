@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /scores/{docId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['game', 'name', 'score', 'meta', 'week', 'owner_uid', 'created_at'])
+        && request.resource.data.keys().hasAll(['game', 'name', 'score', 'meta', 'week', 'owner_uid', 'created_at'])
+        && request.resource.data.owner_uid == request.auth.uid
+        && request.resource.data.game in ['survivors', 'tower-defense', 'sky-shooter']
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 1
+        && request.resource.data.name.size() <= 12
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && ((request.resource.data.game == 'sky-shooter' && request.resource.data.score <= 100000000)
+            || (request.resource.data.game != 'sky-shooter' && request.resource.data.score <= 10000000))
+        && request.resource.data.meta is string
+        && request.resource.data.meta.size() <= 40
+        && request.resource.data.week is string
+        && request.resource.data.week.matches('^[0-9]{4}-W[0-9]{2}$')
+        && request.resource.data.created_at is timestamp
+        && request.resource.data.created_at <= request.time + duration.time(5, 'm')
+        && request.resource.data.created_at >= request.time - duration.time(10, 'm');
+      allow update: if false;
+      allow delete: if request.auth != null && resource.data.owner_uid == request.auth.uid;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
