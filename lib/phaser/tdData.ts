@@ -8,8 +8,8 @@ export const ROWS = 8;
 export const BASE_HP = 20;
 
 export const BALANCE = {
-  initialWheat: 180, hpGrowth: 1.105, endlessGrowth: 0.055,
-  bonusBase: 28, bonusPerWave: 3, rewardGrowth: 0.045,
+  initialWheat: 180, hpGrowth: 1.13, endlessGrowth: 0.08,
+  bonusBase: 28, bonusPerWave: 3, rewardGrowth: 0.02,
   wetDuration: 3, wetLightning: 1.65, frozenCannon: 1.4,
   slowDuration: 1.6, bossRageSpeed: 1.65, maxParticles: 360,
 };
@@ -42,10 +42,10 @@ export type TowerDef = {
   color: string; desc: string; slow?: number; chain?: number;
 };
 export const TOWERS: Record<TowerKind, TowerDef> = {
-  scarecrow: { name: "かかし砲台", icon: "🧑‍🌾", cost: 50, range: 2.7, dmg: 14, rate: 1.4, color: "#e0a458", desc: "単体砲撃。鈍化中の敵へ威力1.4倍" },
-  sprinkler: { name: "連射スプリンクラー", icon: "💦", cost: 40, range: 2.1, dmg: 4, rate: 5, color: "#4db8e8", desc: "連射で3秒間「濡れ」付与。雷と好相性" },
-  fan: { name: "氷結ファン", icon: "❄️", cost: 60, range: 2.3, dmg: 2, rate: 2, color: "#7cc7e8", desc: "1.6秒鈍化。かかし砲台の威力を増幅", slow: 0.45 },
-  thunder: { name: "雷タワー", icon: "⚡", cost: 120, range: 3.0, dmg: 24, rate: 0.55, color: "#b388ff", desc: "3体連鎖。濡れた敵へ威力1.65倍", chain: 3 },
+  scarecrow: { name: "かかし砲台", icon: "🧑‍🌾", cost: 55, range: 2.7, dmg: 14, rate: 1.4, color: "#e0a458", desc: "単体砲撃。鈍化中の敵へ威力1.4倍" },
+  sprinkler: { name: "連射スプリンクラー", icon: "💦", cost: 45, range: 2.1, dmg: 4, rate: 5, color: "#4db8e8", desc: "連射で3秒間「濡れ」付与。雷と好相性" },
+  fan: { name: "氷結ファン", icon: "❄️", cost: 65, range: 2.3, dmg: 2, rate: 2, color: "#7cc7e8", desc: "1.6秒鈍化。かかし砲台の威力を増幅", slow: 0.45 },
+  thunder: { name: "雷タワー", icon: "⚡", cost: 140, range: 3.0, dmg: 24, rate: 0.55, color: "#b388ff", desc: "3体連鎖。濡れた敵へ威力1.65倍", chain: 3 },
 };
 export const TOWER_KINDS = Object.keys(TOWERS) as TowerKind[];
 
@@ -59,7 +59,7 @@ export function towerStats(kind: TowerKind, lv: number) {
 }
 export function upgradeCost(kind: TowerKind, lv: number): number | null {
   if (lv >= 3) return null;
-  return Math.round(TOWERS[kind].cost * (lv === 1 ? 0.8 : 1.2));
+  return Math.round(TOWERS[kind].cost * (lv === 1 ? 1.0 : 1.6));
 }
 
 export type EKind = "normal" | "fast" | "tank" | "swarm" | "boss";
@@ -74,7 +74,7 @@ export function waveQueue(wave: number): EKind[] {
   const q: EKind[] = [];
   const tier = Math.min(8, Math.floor((wave - 1) / 5));
   const add = (kind: EKind, count: number) => { for (let i = 0; i < count; i++) q.push(kind); };
-  const extra = Math.min(16, tier * 2);
+  const extra = Math.min(24, tier * 3);
   switch (wave % 5) {
     case 1: add("normal", 8 + extra); if (tier) { add("fast", 4 + tier); add("tank", 2); } break;
     case 2: add("normal", 3); add("fast", 9 + extra); break;
@@ -85,15 +85,17 @@ export function waveQueue(wave: number): EKind[] {
   return q;
 }
 export function waveHpMultiplier(wave: number) {
+  // W20までは hpGrowth の累乗。W21以降のエンドレスは endlessGrowth 率で複利成長させる
+  // （旧仕様の線形加点だと経済成長に負けて「放置勝ち」になるため。検証: hidden_files/td-balance.md）
   return Math.pow(BALANCE.hpGrowth, Math.min(wave - 1, 19)) *
-    (1 + Math.max(0, wave - 20) * BALANCE.endlessGrowth);
+    Math.pow(1 + BALANCE.endlessGrowth, Math.max(0, wave - 20));
 }
 export function enemyBase(kind: EKind) {
   return {
-    normal: { hp: 22, spd: 34, bounty: 6, leak: 1, r: 15, emoji: "🐦" },
-    fast: { hp: 13, spd: 58, bounty: 7, leak: 1, r: 13, emoji: "🦇" },
-    tank: { hp: 95, spd: 19, bounty: 14, leak: 2, r: 22, emoji: "🌩️" },
-    swarm: { hp: 8, spd: 44, bounty: 3, leak: 1, r: 10, emoji: "🐜" },
-    boss: { hp: 460, spd: 15, bounty: 150, leak: 5, r: 30, emoji: "👹" },
+    normal: { hp: 22, spd: 34, bounty: 5, leak: 1, r: 15, emoji: "🐦" },
+    fast: { hp: 13, spd: 58, bounty: 6, leak: 1, r: 13, emoji: "🦇" },
+    tank: { hp: 105, spd: 19, bounty: 12, leak: 2, r: 22, emoji: "🌩️" },
+    swarm: { hp: 8, spd: 44, bounty: 2, leak: 1, r: 10, emoji: "🐜" },
+    boss: { hp: 560, spd: 15, bounty: 120, leak: 5, r: 30, emoji: "👹" },
   }[kind];
 }
