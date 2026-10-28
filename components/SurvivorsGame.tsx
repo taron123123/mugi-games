@@ -5,6 +5,7 @@ import Link from "next/link";
 import { FOLLOW_LINE, SITE_URL } from "@/lib/games";
 import { usePlayCounter } from "@/lib/usePlayCounter";
 import { pushHistory } from "@/lib/records";
+import { loadGrains, loadMetaLevels, saveGrains, totalLevels } from "@/lib/meta";
 import { sfx } from "@/lib/sfx";
 import type {
   CardDef,
@@ -15,6 +16,7 @@ import type {
 } from "@/lib/phaser/survivors";
 import PlayCountBadge from "./PlayCountBadge";
 import RecordsPanel from "./RecordsPanel";
+import MetaUpgrades from "./MetaUpgrades";
 import RankingPanel from "./RankingPanel";
 import RankingSubmit from "./RankingSubmit";
 import ShareButton, { FollowLink } from "./ShareButton";
@@ -40,6 +42,7 @@ export default function SurvivorsGame() {
   const [cards, setCards] = useState<CardDef[]>([]);
   const [rerolled, setRerolled] = useState(false);
   const [result, setResult] = useState<SurvivorsResult | null>(null);
+  const [grainsHeld, setGrainsHeld] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
   const [rankKey, setRankKey] = useState(0);
   const { count, loaded, registerPlay } = usePlayCounter(SLUG);
@@ -60,9 +63,14 @@ export default function SurvivorsGame() {
             setCards(c);
             setRerolled(r);
           },
+          getMetaLevels: () => loadMetaLevels(),
           onGameOver: (r) => {
             setResult(r);
             pushHistory(HIST_KEY, r.score);
+            // 周回通貨「麦の粒」を加算して保存
+            const held = loadGrains() + r.grainsEarned;
+            saveGrains(held);
+            setGrainsHeld(held);
             setRefreshKey((k) => k + 1);
           },
         });
@@ -161,6 +169,8 @@ export default function SurvivorsGame() {
               🌾を集めてレベルアップし、3つの強化から1つ選んでビルドを育てよう。
               <br />
               60秒ごとにエリート、3分でボスが出現！
+              <br />
+              集めた🌾麦の粒で「永続強化」もできるよ（画面下のパネル）。
             </p>
             <button
               type="button"
@@ -227,6 +237,7 @@ export default function SurvivorsGame() {
               <p className="result-main">生存時間 <strong>{fmtTime(result.time)}</strong></p>
               <p className="result-sub">撃破 {result.kills} ／ Lv {result.level} ／ スコア {result.score.toLocaleString()}点</p>
               <p className="result-sub">生存 {(Math.floor(result.time) * 5).toLocaleString()}点 ＋ 撃破 {result.killScore.toLocaleString()}点 ＋ レベル {((result.level - 1) * 150).toLocaleString()}点</p>
+              <p className="result-sub">🌾 麦の粒 +{result.grainsEarned.toLocaleString()} 獲得！（所持 {grainsHeld.toLocaleString()} 粒）画面下の「永続強化」で使えます</p>
               <div className="btn-row">
                 <button type="button" className="big-btn" onClick={start}>🔄 もう一度</button>
                 <ShareButton text={shareText} />
@@ -234,7 +245,7 @@ export default function SurvivorsGame() {
               <RankingSubmit
                 game="survivors"
                 score={result.score}
-                meta={`生存${fmtTime(result.time)} / 撃破${result.kills} / Lv${result.level}`}
+                meta={`生存${fmtTime(result.time)} / 撃破${result.kills} / Lv${result.level}${totalLevels(loadMetaLevels()) > 0 ? ` / 強化${totalLevels(loadMetaLevels())}` : ""}`}
                 active={phase === "over"}
                 onSubmitted={() => setRankKey((k) => k + 1)}
               />
@@ -254,6 +265,7 @@ export default function SurvivorsGame() {
           formatValue={(v) => `${v.toLocaleString()}点`}
           bestMode="max"
         />
+        <MetaUpgrades refreshKey={refreshKey} />
         <RankingPanel game="survivors" refreshKey={rankKey} />
       </div>
     </>

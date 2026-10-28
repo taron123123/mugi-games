@@ -412,6 +412,105 @@ a {
   font-size: 0.88rem;
 }
 
+/* ---- meta upgrades（サバイバーズ永続強化） ---- */
+.meta-upgrades {
+  margin-top: 28px;
+  border-top: 2px dashed #cfe9f7;
+  padding-top: 16px;
+}
+
+.meta-upgrades h2 {
+  font-size: 1.1rem;
+  margin: 0 0 8px;
+}
+
+.meta-note {
+  color: #5b7a94;
+  font-size: 0.92rem;
+  margin: 4px 0;
+}
+
+.meta-grains {
+  font-size: 1.05rem;
+  margin: 8px 0;
+}
+
+.meta-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--sky-light);
+  border-radius: 10px;
+  margin-bottom: 6px;
+}
+
+.meta-icon {
+  font-size: 1.35rem;
+}
+
+.meta-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.meta-name {
+  font-weight: 700;
+}
+
+.meta-pips {
+  color: #d9a41c;
+  font-size: 0.8rem;
+  margin-left: 8px;
+  letter-spacing: 2px;
+}
+
+.meta-effect {
+  color: #5b7a94;
+  font-size: 0.85rem;
+}
+
+.meta-buy {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 700;
+  background: #ffd94d;
+  color: #5a4300;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.meta-buy:disabled {
+  background: #d8dee2;
+  color: #8a97a0;
+  cursor: not-allowed;
+}
+
+.meta-max {
+  font-weight: 700;
+  color: #d9a41c;
+  white-space: nowrap;
+}
+
+.meta-reset {
+  color: #5b7a94;
+  font-size: 0.92rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* ---- ranking ---- */
 .ranking {
   margin-top: 28px;

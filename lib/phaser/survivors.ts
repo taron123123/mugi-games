@@ -1,5 +1,6 @@
 import * as Phaser from "phaser";
 import { sfx } from "../sfx";
+import { grainsForRun, type MetaLevels } from "../meta";
 import {
   attachDprResize,
   baseGameConfig,
@@ -23,6 +24,8 @@ export type SurvivorsResult = {
   level: number;
   score: number;
   killScore: number;
+  /** このランで獲得した「麦の粒」（周回要素の通貨） */
+  grainsEarned: number;
 };
 export type SurvivorsHud = {
   hp: number;
@@ -41,6 +44,8 @@ export interface SurvivorsHooks {
   onHud(h: SurvivorsHud): void;
   onLevelUp(cards: CardDef[], rerolled: boolean): void;
   onGameOver(r: SurvivorsResult): void;
+  /** 永続強化のレベルをラン開始時に読み直す（lib/meta.ts の保存値） */
+  getMetaLevels?: () => MetaLevels;
 }
 
 export interface SurvivorsApi {
@@ -145,6 +150,8 @@ class SurvivorsScene extends Phaser.Scene {
   kills = 0;
   score = 0;
   weapons: Weapons = { critLv: 0, dmgLv: 0, rateLv: 0, countLv: 0, orbit: 0, missile: 0, thunder: 0, speedLv: 0, magnetLv: 0 };
+  /** 永続強化（ランをまたいで効く。resetState で読み直す） */
+  metaLv: MetaLevels = { hp: 0, spd: 0, mag: 0, pow: 0 };
   enemies: EnemyE[] = [];
   bullets: BulletE[] = [];
   missiles: MissileE[] = [];
@@ -989,8 +996,10 @@ class SurvivorsScene extends Phaser.Scene {
     this.py = WORLD / 2;
     this.pvx = 0;
     this.pvy = 0;
-    this.hp = 100;
-    this.maxHp = 100;
+    // 永続強化「体力の素」を素の最大HPに上乗せする
+    this.metaLv = this.hooks.getMetaLevels?.() ?? { hp: 0, spd: 0, mag: 0, pow: 0 };
+    this.maxHp = 100 + 10 * this.metaLv.hp;
+    this.hp = this.maxHp;
     this.level = 1;
     this.xp = 0;
     this.xpNext = 6;
@@ -1077,7 +1086,7 @@ class SurvivorsScene extends Phaser.Scene {
       my = s.joy.dy;
     }
     const mlen = Math.hypot(mx, my);
-    const maxSpd = 205 * (1 + 0.08 * w.speedLv);
+    const maxSpd = 205 * (1 + 0.08 * w.speedLv) * (1 + 0.03 * s.metaLv.spd);
     let tvx = 0;
     let tvy = 0;
     if (mlen > 0.01) {
@@ -1630,6 +1639,8 @@ class SurvivorsScene extends Phaser.Scene {
   damageEnemy(e: EnemyE, dmg: number): void {
     const s = this;
     if (e.dead) return;
+    // 永続強化「力の素」：全武器のダメージに一括で乗せる（会心判定の前）
+    dmg *= 1 + 0.04 * s.metaLv.pow;
     let crit = false;
     if (Math.random() < 0.1 + s.weapons.critLv * 0.08) {
       crit = true;
@@ -1779,13 +1790,16 @@ class SurvivorsScene extends Phaser.Scene {
     const score = s.score + Math.floor(s.gtime) * 5 + (s.level - 1) * 150;
     sfx.stopBgm();
     sfx.play("gameover");
-    s.hooks.onGameOver({ time: s.gtime, kills: s.kills, level: s.level, score, killScore: s.score });
+    s.hooks.onGameOver({
+      time: s.gtime, kills: s.kills, level: s.level, score, killScore: s.score,
+      grainsEarned: grainsForRun(s.kills, s.gtime),
+    });
     s.setPhase("over");
   }
 
   pickupLogic(dt: number): void {
     const s = this;
-    const magnetR = 80 * Math.pow(1.4, s.weapons.magnetLv);
+    const magnetR = 80 * (1 + 0.12 * s.metaLv.mag) * Math.pow(1.4, s.weapons.magnetLv);
     for (let i = s.gems.length - 1; i >= 0; i--) {
       const g = s.gems[i];
       const d = Math.hypot(s.px - g.img.x, s.py - g.img.y);
@@ -1930,6 +1944,8 @@ class SurvivorsScene extends Phaser.Scene {
     if (w.thunder > 0) chips.push(`⚡雷撃 Lv${w.thunder}`);
     if (w.thunder >= 3 && w.missile > 0) chips.push("着弾雷 発動中");
     chips.push(`会心 ${10 + w.critLv * 8}%`);
+    const metaTotal = this.metaLv.hp + this.metaLv.spd + this.metaLv.mag + this.metaLv.pow;
+    if (metaTotal > 0) chips.push(`🌾永続強化 Lv${metaTotal}`);
     const boss = this.enemies.find((e) => e.kind === "boss" && !e.dead);
     this.hooks.onHud({
       hp: Math.ceil(this.hp),
