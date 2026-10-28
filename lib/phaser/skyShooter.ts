@@ -7,6 +7,8 @@ import {
   ensureDot,
   ensureRing,
   genTex,
+  Hitstop,
+  HurtVignette,
   ImagePool,
   ParticlePool,
   TextPool,
@@ -148,6 +150,8 @@ class SkyScene extends Phaser.Scene {
   bannerObj!: Phaser.GameObjects.Text;
   warnObj!: Phaser.GameObjects.Text;
   flashRect!: Phaser.GameObjects.Rectangle;
+  hurtVig!: HurtVignette;
+  hitstop = new Hitstop();
   booted = false;
   autoStartOnBoot = false;
   bulletPool!: ImagePool;
@@ -198,6 +202,8 @@ class SkyScene extends Phaser.Scene {
       .setDepth(91)
       .setVisible(false);
     this.flashRect = this.add.rectangle(0, 0, this.LW, this.LH, 0xffffff, 0).setOrigin(0, 0).setDepth(88);
+    // 被弾専用の赤ヴィネット（白フラッシュとは別オブジェクト・その下）
+    this.hurtVig = new HurtVignette(this, 87);
 
     this.bulletPool = new ImagePool(this, "sky-shot", 25);
     this.ebulletPool = new ImagePool(this, "sky-ebullet", 24);
@@ -208,6 +214,8 @@ class SkyScene extends Phaser.Scene {
     this.setupInput();
     this.layout();
     this.scale.on("resize", () => this.layout());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => sfx.stopBgm("sky"));
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => sfx.stopBgm("sky"));
     this.resetState();
     this.booted = true;
     if (this.autoStartOnBoot) {
@@ -449,6 +457,8 @@ class SkyScene extends Phaser.Scene {
     this.bgFar?.setSize(this.LW, this.LH);
     this.bgNear?.setSize(this.LW, this.LH);
     this.flashRect?.setSize(this.LW, this.LH);
+    // カメラは論理画面の中央に固定なので、flashRect と同じく論理座標で全面を覆う
+    this.hurtVig?.layout(this.LW / 2, this.LH / 2, this.LW, this.LH);
     this.px = Phaser.Math.Clamp(this.px, 16, this.LW - 16);
     this.py = Phaser.Math.Clamp(this.py, 40, this.LH - 16);
   }
@@ -520,6 +530,8 @@ class SkyScene extends Phaser.Scene {
     this.formations.clear();
     this.particlePool?.clear();
     this.texts?.clear();
+    this.hurtVig?.clear();
+    this.hitstop.reset();
     this.gtime = 0;
     this.stageTime = 0;
     this.stage = 1;
@@ -555,6 +567,7 @@ class SkyScene extends Phaser.Scene {
   start(): void {
     this.resetState();
     this.setPhase("playing");
+    sfx.startBgm("sky");
   }
 
   addScore(base: number): void {
@@ -562,6 +575,7 @@ class SkyScene extends Phaser.Scene {
   }
 
   endGame(): void {
+    sfx.stopBgm();
     sfx.play("gameover");
     this.hooks.onGameOver({ score: this.score, stage: this.stage, graze: this.graze });
     this.setPhase("over");
@@ -577,6 +591,8 @@ class SkyScene extends Phaser.Scene {
     this.slow = Math.max(0, this.slow - rawDt);
     this.slowCooldown = Math.max(0, this.slowCooldown - rawDt);
     if (this.slow > 0) dt *= 0.48;
+    // ヒットストップ中はゲーム時間を止める（実時間で解除。演出の drawFx は動かし続ける）
+    if (this.hitstop.tick(deltaMs)) dt = 0;
     if (dt > 0) this.step(dt, rawDt);
     this.drawFx(rawDt);
     this.hudTimer += rawDt;
@@ -1051,7 +1067,9 @@ class SkyScene extends Phaser.Scene {
     s.chain = s.gtime < s.chainUntil ? s.chain + 1 : 1;
     s.chainUntil = s.gtime + 2.2;
     const chainMult = 1 + Math.min(3, Math.floor(s.chain / 5));
+    const gained = e.score * chainMult * multOf(s.graze);
     s.addScore(e.score * chainMult);
+    s.texts.spawn(e.cont.x, e.cont.y, `+${gained}`, "#ffe08a", 0.6);
     if (s.chain % 5 === 0) s.texts.spawn(e.cont.x, e.cont.y - 20, `${s.chain} CHAIN ×${chainMult}`, "#fff39b");
     const ring = s.ringPool.obtain();
     ring.setPosition(e.cont.x, e.cont.y).setTint(0xffdc89).setDisplaySize(8, 8);
@@ -1076,6 +1094,8 @@ class SkyScene extends Phaser.Scene {
     }
     s.particlePool.burst(e.cont.x, e.cont.y, e.kind === "boss" ? "#b388ff" : "#ffb74d", e.kind === "boss" ? 46 : 12, e.kind === "boss" ? 260 : 160);
     sfx.play(e.kind === "boss" || e.kind === "mid" ? "boom" : "hit");
+    if (e.kind === "boss") s.hitstop.trigger(80);
+    else if (e.kind === "mid") s.hitstop.trigger(60);
     if (e.kind === "carrier") {
       const kind = (["P", "S", "B"] as const)[s.powerCycle % 3];
       s.powerCycle += 1;
@@ -1126,7 +1146,9 @@ class SkyScene extends Phaser.Scene {
     s.invulnUntil = s.gtime + 2;
     s.cameras.main.shake(140, 0.007);
     s.particlePool.burst(s.px, s.py, "#ff6b6b", 24, 200);
-    sfx.play("boom");
+    s.hurtVig.flash();
+    s.hitstop.trigger(50);
+    sfx.play("hurt");
     if (s.lives <= 0) s.endGame();
   }
 
@@ -1313,5 +1335,5 @@ export function createSkyShooterGame(
     bomb: () => { if (scene.booted) scene.useBomb(); },
     autoPause: () => { if (scene.booted && scene.phase === "playing") scene.setPhase("paused"); },
   };
-  return { game, api, destroy: () => { detach(); game.destroy(true); } };
+  return { game, api, destroy: () => { detach(); sfx.stopBgm("sky"); game.destroy(true); } };
 }

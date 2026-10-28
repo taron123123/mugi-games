@@ -263,6 +263,79 @@ export class ParticlePool {
   }
 }
 
+/**
+ * ヒットストップ。残り停止時間を実時間 (ms) で持ち、停止中はゲームロジックを進めない。
+ * Phaser の time/tweens は止めないので、UI やトゥイーン演出はそのまま動く。
+ */
+export class Hitstop {
+  private remainMs = 0;
+  /** 停止を要求する（停止中なら長い方を採用） */
+  trigger(ms: number): void {
+    this.remainMs = Math.max(this.remainMs, ms);
+  }
+  /** 毎フレームの実経過時間で呼ぶ。停止中なら true（このフレームの dt は 0 扱い） */
+  tick(deltaMs: number): boolean {
+    if (this.remainMs <= 0) return false;
+    this.remainMs -= deltaMs;
+    return true;
+  }
+  reset(): void {
+    this.remainMs = 0;
+  }
+}
+
+/** 画面端だけ赤く、中央は透明なラジアルグラデーション（被弾ヴィネット用） */
+export function ensureHurtVignette(scene: Phaser.Scene): string {
+  const key = "tex-hurt-vignette";
+  if (scene.textures.exists(key)) return key;
+  const S = 256;
+  const tex = scene.textures.createCanvas(key, S, S);
+  if (!tex) return key;
+  const ctx = tex.getContext();
+  const grad = ctx.createRadialGradient(S / 2, S / 2, S * 0.3, S / 2, S / 2, S * 0.71);
+  grad.addColorStop(0, "rgba(226,36,40,0)");
+  grad.addColorStop(0.5, "rgba(226,36,40,0.3)");
+  grad.addColorStop(1, "rgba(200,20,30,1)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, S, S);
+  tex.refresh();
+  return key;
+}
+
+/** 被弾時に画面端を赤く光らせてフェードアウトさせるオーバーレイ */
+export class HurtVignette {
+  readonly img: Phaser.GameObjects.Image;
+  constructor(
+    private scene: Phaser.Scene,
+    depth: number,
+  ) {
+    this.img = scene.add
+      .image(0, 0, ensureHurtVignette(scene))
+      .setDepth(depth)
+      .setAlpha(0)
+      .setVisible(false);
+  }
+  /** 中心座標と表示サイズを合わせる（シーンのカメラ構成に応じて呼び出し側が算出） */
+  layout(cx: number, cy: number, w: number, h: number): void {
+    this.img.setPosition(cx, cy).setDisplaySize(w, h);
+  }
+  flash(alpha = 0.35, ms = 260): void {
+    this.scene.tweens.killTweensOf(this.img);
+    this.img.setVisible(true).setAlpha(alpha);
+    this.scene.tweens.add({
+      targets: this.img,
+      alpha: 0,
+      duration: ms,
+      ease: "Quad.easeOut",
+      onComplete: () => this.img.setVisible(false),
+    });
+  }
+  clear(): void {
+    this.scene.tweens.killTweensOf(this.img);
+    this.img.setAlpha(0).setVisible(false);
+  }
+}
+
 /** 角度差を -π..π に正規化して、最大旋回量で目標角へ寄せる */
 export function turnToward(
   current: number,

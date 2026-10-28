@@ -6,6 +6,8 @@ import {
   ensureDot,
   ensureRing,
   genTex,
+  Hitstop,
+  HurtVignette,
   ImagePool,
   ParticlePool,
   TextPool,
@@ -204,6 +206,8 @@ class TowerDefenseScene extends Phaser.Scene {
   particlePool!: ParticlePool;
   texts!: TextPool;
   dmgTexts!: TextPool;
+  hurtVig!: HurtVignette;
+  hitstop = new Hitstop();
 
   constructor() {
     super("tower-defense");
@@ -236,6 +240,9 @@ class TowerDefenseScene extends Phaser.Scene {
     this.particlePool = new ParticlePool(new ImagePool(this, "tex-dot", 35));
     this.texts = new TextPool(this, 60, 15);
     this.dmgTexts = new TextPool(this, 61, 14);
+    // 被弾ヴィネット（ゲーム要素の上・バナーの下）。カメラは等倍・固定なので画面サイズそのまま
+    this.hurtVig = new HurtVignette(this, 85);
+    this.hurtVig.layout(this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height);
     this.computeLayout(false);
     this.buildFieldTexture();
     this.placeTufts();
@@ -244,7 +251,10 @@ class TowerDefenseScene extends Phaser.Scene {
       this.computeLayout(true);
       this.buildFieldTexture();
       this.placeTufts();
+      this.hurtVig.layout(this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height);
     });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => sfx.stopBgm("tower"));
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => sfx.stopBgm("tower"));
     this.exportIcons();
     this.resetState();
     this.booted = true;
@@ -1272,6 +1282,8 @@ class TowerDefenseScene extends Phaser.Scene {
     this.particlePool?.clear();
     this.texts?.clear();
     this.dmgTexts?.clear();
+    this.hurtVig?.clear();
+    this.hitstop.reset();
     this.gtime = 0;
     this.wheat = BALANCE.initialWheat;
     this.baseHp = BASE_HP;
@@ -1295,11 +1307,13 @@ class TowerDefenseScene extends Phaser.Scene {
   start(): void {
     this.resetState();
     this.setPhase("playing");
+    sfx.startBgm("tower");
     this.startWave();
   }
 
   beginFromBuild(): void {
     this.setPhase("playing");
+    sfx.startBgm("tower");
     this.startWave();
   }
 
@@ -1313,13 +1327,15 @@ class TowerDefenseScene extends Phaser.Scene {
     s.spawnCd = 0.3;
     if (s.wave % 5 === 0) s.showBanner(`WAVE ${s.wave} 👹 ボス接近！`, 1.9);
     else s.showBanner(`WAVE ${s.wave} ${waveName(s.wave)}`, 1.6);
-    sfx.play("clear");
+    sfx.play("wavestart");
+    if (s.wave % 5 === 0) sfx.play("warning");
     s.hudDirty = true;
   }
 
   endGame(): void {
     const s = this;
     const score = s.kills * 15 + s.wave * 800 + s.totalEarned;
+    sfx.stopBgm();
     sfx.play("gameover");
     s.hooks.onGameOver({ wave: s.wave, kills: s.kills, score });
     s.setPhase("over");
@@ -1352,7 +1368,10 @@ class TowerDefenseScene extends Phaser.Scene {
       s.particlePool.burst(p.x, p.y, TOWERS[kind].color, e.kind === "boss" ? 20 : 7, 150);
       s.particlePool.burst(p.x, p.y, "#e8e4da", e.kind === "boss" ? 14 : 6, 70, 4.2);
       s.texts.spawn(p.x, p.y - 14, `+${e.bounty}🌾`, "#fff4a8", 0.85);
-      if (e.kind === "boss") s.cameras.main.shake(180, 0.005);
+      if (e.kind === "boss") {
+        s.cameras.main.shake(180, 0.005);
+        s.hitstop.trigger(80);
+      }
       sfx.play(e.kind === "boss" ? "boom" : "coin");
       s.hudDirty = true;
     }
@@ -1412,7 +1431,9 @@ class TowerDefenseScene extends Phaser.Scene {
       tf.img.rotation = Math.sin(this.animTime * 1.7 + tf.ph) * 0.075;
     }
     if (this.phase === "playing") {
-      const dt = Math.min(0.05, deltaMs / 1000) * this.speed;
+      // ヒットストップ中はゲーム時間を止める（実時間で解除）
+      const frozen = this.hitstop.tick(deltaMs);
+      const dt = frozen ? 0 : Math.min(0.05, deltaMs / 1000) * this.speed;
       if (dt > 0) this.step(dt);
     }
     // 消えゆく敵（撃破ポフ）の更新は実時間で
@@ -1488,6 +1509,8 @@ class TowerDefenseScene extends Phaser.Scene {
         s.baseHp = Math.max(0, s.baseHp - e.leak);
         s.hitUntil = s.gtime + 0.45;
         s.cameras.main.shake(120, 0.0035);
+        s.hurtVig.flash(0.3);
+        s.hitstop.trigger(40);
         s.particlePool.burst(s.housePos.x, s.housePos.y - s.cell * 0.2, "#e2543e", 12, 110);
         s.texts.spawn(s.housePos.x, s.housePos.y - s.cell * 0.75, `-${e.leak} ❤`, "#ff8a7a", 0.95);
         sfx.play("hurt");
@@ -1953,5 +1976,5 @@ export function createTowerDefenseGame(
     },
     autoPause: () => { if (scene.phase === "playing") scene.setPhase("paused"); },
   };
-  return { game, api, destroy: () => { detach(); game.destroy(true); } };
+  return { game, api, destroy: () => { detach(); sfx.stopBgm("tower"); game.destroy(true); } };
 }

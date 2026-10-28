@@ -7,6 +7,8 @@ import {
   ensureDot,
   ensureRing,
   genTex,
+  Hitstop,
+  HurtVignette,
   ImagePool,
   ParticlePool,
   TextPool,
@@ -189,6 +191,8 @@ class SurvivorsScene extends Phaser.Scene {
   joyBase!: Phaser.GameObjects.Image;
   joyKnob!: Phaser.GameObjects.Image;
   vignette!: Phaser.GameObjects.Image;
+  hurtVig!: HurtVignette;
+  hitstop = new Hitstop();
   bulletPool!: ImagePool;
   gemPool!: ImagePool;
   particlePool!: ParticlePool;
@@ -262,6 +266,9 @@ class SurvivorsScene extends Phaser.Scene {
       .setDepth(80)
       .setScrollFactor(0)
       .setVisible(false);
+    // 被弾ヴィネット（低HPビネットの上・バナーの下）
+    this.hurtVig = new HurtVignette(this, 81);
+    this.hurtVig.img.setScrollFactor(0);
 
     this.joyBase = this.add.image(0, 0, "tex-dot").setDisplaySize(104, 104).setTint(0x23405a).setAlpha(0.3).setDepth(95).setScrollFactor(0).setVisible(false);
     this.joyKnob = this.add.image(0, 0, "tex-dot").setDisplaySize(44, 44).setTint(0x23405a).setAlpha(0.55).setDepth(96).setScrollFactor(0).setVisible(false);
@@ -277,6 +284,8 @@ class SurvivorsScene extends Phaser.Scene {
     this.setupInput();
     this.layoutCamera();
     this.scale.on("resize", () => this.layoutCamera());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => sfx.stopBgm("survivors"));
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => sfx.stopBgm("survivors"));
     this.resetState();
     this.booted = true;
     if (this.autoStartOnBoot) {
@@ -875,6 +884,8 @@ class SurvivorsScene extends Phaser.Scene {
     cam.setZoom(zoom);
     cam.setBounds(0, 0, WORLD, WORLD);
     this.vignette?.setDisplaySize(vw, vh);
+    // scrollFactor 0 でもズームは画面中心基準で掛かるので、ズームを打ち消したサイズで中央に置く
+    this.hurtVig?.layout(vw / 2, vh / 2, vw / zoom, vh / zoom);
     this.bannerObj?.setPosition(vw / 2, vh * 0.32);
     this.uiScale = this.scale.displayScale.x || 1;
     this.joyBase?.setDisplaySize(104 * this.uiScale, 104 * this.uiScale);
@@ -968,6 +979,8 @@ class SurvivorsScene extends Phaser.Scene {
     this.particlePool?.clear();
     this.sparklePool?.clear();
     this.texts?.clear();
+    this.hurtVig?.clear();
+    this.hitstop.reset();
     this.hurtAnim = 0;
     this.lvlAnim = 0;
     this.trailT = 0;
@@ -1009,6 +1022,7 @@ class SurvivorsScene extends Phaser.Scene {
   start(): void {
     this.resetState();
     this.setPhase("playing");
+    sfx.startBgm("survivors");
   }
 
   // ================= 更新 =================
@@ -1025,6 +1039,8 @@ class SurvivorsScene extends Phaser.Scene {
       this.joyKnob.setVisible(false);
     }
     if (this.phase !== "playing") return;
+    // ヒットストップ中はゲーム時間ごと止める（実時間で解除）
+    if (this.hitstop.tick(deltaMs)) return;
     let dt = rawDt;
     if (this.slow > 0) {
       this.slow = Math.max(0, this.slow - rawDt);
@@ -1568,6 +1584,8 @@ class SurvivorsScene extends Phaser.Scene {
         s.invulnUntil = s.gtime + 0.6;
         s.cameras.main.shake(70, 0.0035);
         sfx.play("hurt");
+        s.hurtVig.flash();
+        s.hitstop.trigger(40);
         s.particlePool.burst(s.px, s.py, "#ff6b6b", 10, 150);
         if (s.hp <= 0) {
           s.hp = 0;
@@ -1598,6 +1616,8 @@ class SurvivorsScene extends Phaser.Scene {
         s.invulnUntil = s.gtime + 0.6;
         s.cameras.main.shake(70, 0.0035);
         sfx.play("hurt");
+        s.hurtVig.flash();
+        s.hitstop.trigger(40);
         if (s.hp <= 0) {
           s.endGame();
           return;
@@ -1610,7 +1630,9 @@ class SurvivorsScene extends Phaser.Scene {
   damageEnemy(e: EnemyE, dmg: number): void {
     const s = this;
     if (e.dead) return;
+    let crit = false;
     if (Math.random() < 0.1 + s.weapons.critLv * 0.08) {
+      crit = true;
       dmg *= 2;
       sfx.play("critical");
       s.texts.spawn(e.img.x, e.img.y - e.r, `${Math.round(dmg)}!`, "#ff57c8");
@@ -1624,6 +1646,12 @@ class SurvivorsScene extends Phaser.Scene {
     if (s.kills % 100 === 0 || s.kills === 25 || s.kills === 50) s.setBanner(`${s.kills}体撃破！`, 2.5);
     if (e.kind === "elite" || e.kind === "boss") s.slow = 0.085;
     s.score += e.score;
+    // スコアポップ（通常撃破は数が多いので、大物と会心撃破のみ）
+    if (e.kind === "elite" || e.kind === "boss") {
+      s.texts.spawn(e.img.x, e.img.y - e.r - 8, `+${e.score}`, "#ffd23f", 1.1);
+    } else if (crit) {
+      s.texts.spawn(e.img.x, e.img.y - e.r - 24, `+${e.score}`, "#fff6d0", 0.8);
+    }
     // 残像フェード＋種別カラーの破片バースト
     s.spawnGhost(e);
     const burstColor =
@@ -1749,6 +1777,7 @@ class SurvivorsScene extends Phaser.Scene {
   endGame(): void {
     const s = this;
     const score = s.score + Math.floor(s.gtime) * 5 + (s.level - 1) * 150;
+    sfx.stopBgm();
     sfx.play("gameover");
     s.hooks.onGameOver({ time: s.gtime, kills: s.kills, level: s.level, score, killScore: s.score });
     s.setPhase("over");
@@ -1935,5 +1964,5 @@ export function createSurvivorsGame(
     reroll: () => { if (scene.booted) scene.reroll(); },
     autoPause: () => { if (scene.booted && scene.phase === "playing") scene.setPhase("paused"); },
   };
-  return { game, api, destroy: () => { detach(); game.destroy(true); } };
+  return { game, api, destroy: () => { detach(); sfx.stopBgm("survivors"); game.destroy(true); } };
 }
